@@ -1,6 +1,6 @@
-import { StatusReserva } from "@prisma/client";
+import { StatusReserva, TipoCredencial } from "@prisma/client";
 import { BusinessRuleError } from "../../../../shared/errors/app-error.js";
-import { partesLocais } from "../../../../shared/utils/data-hora.js";
+import { dataCivil, partesLocais } from "../../../../shared/utils/data-hora.js";
 import type { SalaParaReserva } from "../../../salas/salas.repository.js";
 import type { UsuariosRepository } from "../../../usuarios/usuarios.repository.js";
 import type { JanelaFuncionamento } from "../../reservas.config.js";
@@ -75,6 +75,79 @@ export class ValidadorHorarioFuncionamento extends ValidadorReserva {
   }
 }
 
+/** Passo 2.1: a duracao de cada turno deve ser exatamente 50 minutos. */
+export class ValidadorDuracao50Minutos extends ValidadorReserva {
+  static readonly DURACAO_MS = 50 * 60 * 1000;
+
+  protected async executar({ ocorrencias }: ContextoValidacaoReserva): Promise<void> {
+    for (const { inicio, fim } of ocorrencias) {
+      const duracao = fim.getTime() - inicio.getTime();
+      if (duracao !== ValidadorDuracao50Minutos.DURACAO_MS) {
+        throw new BusinessRuleError("A duracao da reserva deve ser exatamente 50 minutos.", {
+          inicio: inicio.toISOString(),
+          fim: fim.toISOString(),
+          duracaoMinutos: duracao / 60000,
+        });
+      }
+    }
+  }
+}
+
+/** Passo 2.7: Aluno e Tecnico devem criar reservas com no minimo 12 horas de antecedencia. */
+export class ValidadorAntecedencia12Horas extends ValidadorReserva {
+  static readonly ANTECEDENCIA_MS = 12 * 60 * 60 * 1000;
+
+  protected async executar({ politica, ocorrencias, agora }: ContextoValidacaoReserva): Promise<void> {
+    if (!politica.exigeQuota12Horas) return;
+
+    for (const { inicio } of ocorrencias) {
+      const antecedencia = inicio.getTime() - agora.getTime();
+      if (antecedencia < ValidadorAntecedencia12Horas.ANTECEDENCIA_MS) {
+        throw new BusinessRuleError(
+          "Alunos e tecnicos devem criar reservas com no minimo 12 horas de antecedencia.",
+          { inicio: inicio.toISOString() },
+        );
+      }
+    }
+  }
+}
+
+/** Passo 2.6: Aluno e Tecnico podem ter no maximo 2 reservas no mesmo dia. */
+export class ValidadorLimiteDiarioReservas extends ValidadorReserva {
+  static readonly LIMITE_DIARIO = 2;
+
+  protected async executar({ politica, ator, ocorrencias, reservas }: ContextoValidacaoReserva): Promise<void> {
+    if (!politica.exigeQuota12Horas) return;
+
+    // Agrupar ocorrencias por data civil
+    const diasAfetados = new Set(ocorrencias.map((o) => dataCivil(o.inicio).toISOString()));
+
+    for (const diaIso of diasAfetados) {
+      const inicioDia = new Date(diaIso);
+      const fimDia = new Date(inicioDia.getTime() + 24 * 60 * 60 * 1000);
+      const existentes = await reservas.contarPorSolicitanteNoDia(ator.id, inicioDia, fimDia);
+      const novasNoDia = ocorrencias.filter((o) => dataCivil(o.inicio).toISOString() === diaIso).length;
+      if (existentes + novasNoDia > ValidadorLimiteDiarioReservas.LIMITE_DIARIO) {
+        throw new BusinessRuleError(
+          `Alunos e tecnicos podem ter no maximo ${ValidadorLimiteDiarioReservas.LIMITE_DIARIO} reservas por dia.`,
+          { dia: diaIso, reservasExistentes: existentes },
+        );
+      }
+    }
+  }
+}
+
+/** Passo 2.5: Aluno nunca pode ser definido como responsavel de nenhuma reserva. */
+export class ValidadorResponsavelNaoAluno extends ValidadorReserva {
+  protected async executar({ ator, responsavelId, usuarios }: ContextoValidacaoReserva): Promise<void> {
+    if (responsavelId === ator.id) return; // self-reference, checked by the policy
+    const responsavel = await usuarios.buscarResumoPorId(responsavelId);
+    if (responsavel && responsavel.tipoCredencial === TipoCredencial.MATRICULA_ALUNO) {
+      throw new BusinessRuleError("Alunos nao podem ser definidos como responsaveis de reservas.");
+    }
+  }
+}
+
 /** Aluno: no maximo 1 reserva PENDENTE_APROVACAO criada nas ultimas 12 horas. */
 export class ValidadorQuota12HorasAluno extends ValidadorReserva {
   static readonly JANELA_MS = 12 * 60 * 60 * 1000;
@@ -126,11 +199,15 @@ export class ValidadorConflitoSala extends ValidadorReserva {
   }
 }
 
-/** Pipeline do documento: Horario -> Quota12hAluno -> EscopoDelegacao -> ConflitoSala. */
+/** Pipeline do documento: Horario -> Duracao50Min -> Antecedencia12h -> LimiteDiario -> Quota12hAluno -> ResponsavelNaoAluno -> EscopoDelegacao -> ConflitoSala. */
 export function criarPipelineValidacaoReserva(janela: JanelaFuncionamento | null): ValidadorReserva {
   const inicio = new ValidadorHorarioFuncionamento(janela);
   inicio
+    .encadear(new ValidadorDuracao50Minutos())
+    .encadear(new ValidadorAntecedencia12Horas())
+    .encadear(new ValidadorLimiteDiarioReservas())
     .encadear(new ValidadorQuota12HorasAluno())
+    .encadear(new ValidadorResponsavelNaoAluno())
     .encadear(new ValidadorEscopoDelegacao())
     .encadear(new ValidadorConflitoSala());
   return inicio;

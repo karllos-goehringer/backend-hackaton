@@ -9,6 +9,7 @@ import type { AtorReserva, ResolvedorPoliticaReserva } from "./domain/politicas/
 import type { NovaReservaCommand, RegraRecorrencia } from "./domain/reserva.types.js";
 import { garantirSemConflito } from "./domain/validadores/conflito-sala.js";
 import type { ValidadorReserva } from "./domain/validadores/validadores-reserva.js";
+import type { IReservavel } from "./domain/contratos/reservavel.interface.js";
 import { ReservasRepository, type ReservaComLocalizacao } from "./reservas.repository.js";
 
 export interface ResultadoCriacaoReserva {
@@ -27,8 +28,9 @@ export interface DependenciasReservasService {
 /**
  * Casos de uso de reserva. Orquestra politica (Strategy), pipeline (Chain), fabrica (Factory)
  * e ciclo de vida (State) dentro de transacoes que impedem double-booking.
+ * Implementa IReservavel (Passo 3 do plano de acao).
  */
-export class ReservasService {
+export class ReservasService implements IReservavel {
   private readonly prisma: PrismaClient;
   private readonly resolvedor: ResolvedorPoliticaReserva;
   private readonly pipeline: ValidadorReserva;
@@ -79,6 +81,12 @@ export class ReservasService {
       await reservas.criarVarias(this.factory.criarReservas({ ...base, serieRecorrenciaId: serie.id }));
       return { serieRecorrencia: serie, reservas: await reservas.listarPorSerie(serie.id) };
     });
+  }
+
+  /** Implementacao do contrato IReservavel */
+  async reservar(reserva: Reserva): Promise<void> {
+    const reservasRepo = new ReservasRepository(this.prisma);
+    await reservasRepo.criar(reserva);
   }
 
   async aprovar(ator: AtorReserva, reservaId: string): Promise<Reserva> {

@@ -1,4 +1,4 @@
-import type { Prisma, Reserva, SerieRecorrencia, StatusReserva } from "@prisma/client";
+import type { Prisma, Reserva, SerieRecorrencia, StatusReserva, TipoCredencial } from "@prisma/client";
 import type { DbClient } from "../../shared/database/transacao.js";
 
 export interface ReservaComLocalizacao extends Reserva {
@@ -10,6 +10,11 @@ export interface IntervaloReservado {
   id: string;
   inicio: Date;
   fim: Date;
+}
+
+export interface ReservaParaCancelamento extends ReservaComLocalizacao {
+  solicitanteTipo: TipoCredencial;
+  responsavelDepartamentoId: string | null;
 }
 
 /** Acesso a dados de reservas. Sem regras de negocio: apenas consultas e escritas parametrizadas. */
@@ -33,6 +38,17 @@ export class ReservasRepository {
   contarPorSolicitanteEStatusDesde(solicitanteId: string, status: StatusReserva, desde: Date): Promise<number> {
     return this.db.reserva.count({
       where: { solicitanteId, status, criadoEm: { gte: desde } },
+    });
+  }
+
+  /** Conta reservas ativas (nao canceladas/rejeitadas) do solicitante em um dia especifico. */
+  contarPorSolicitanteNoDia(solicitanteId: string, inicioDia: Date, fimDia: Date): Promise<number> {
+    return this.db.reserva.count({
+      where: {
+        solicitanteId,
+        status: { notIn: ["CANCELADA", "REJEITADA"] },
+        dataHoraInicio: { gte: inicioDia, lt: fimDia },
+      },
     });
   }
 
@@ -91,5 +107,26 @@ export class ReservasRepository {
       data: dados,
     });
     return count === 1;
+  }
+
+  /** Busca reserva com dados do solicitante e responsavel para fluxo de cancelamento. */
+  async buscarParaCancelamento(id: string): Promise<ReservaParaCancelamento | null> {
+    const reserva = await this.db.reserva.findUnique({
+      where: { id },
+      include: {
+        sala: { select: { predioId: true, predio: { select: { setorId: true } } } },
+        solicitante: { select: { id: true, tipoCredencial: true } },
+        responsavel: { select: { id: true, tipoCredencial: true, departamentoId: true } },
+      },
+    });
+    if (!reserva) return null;
+    const { sala, solicitante, responsavel, ...dados } = reserva;
+    return {
+      ...dados,
+      predioId: sala.predioId,
+      setorId: sala.predio.setorId,
+      solicitanteTipo: solicitante.tipoCredencial,
+      responsavelDepartamentoId: responsavel.departamentoId,
+    };
   }
 }

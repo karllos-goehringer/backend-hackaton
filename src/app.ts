@@ -1,4 +1,5 @@
 import express from "express";
+import { criarModuloCancelamentos } from "./features/cancelamentos/cancelamento.module.js";
 import { criarModuloReservas } from "./features/reservas/reservas.module.js";
 import { errorHandler } from "./shared/http/error-handler.js";
 
@@ -11,6 +12,7 @@ app.get("/health", (_request, response) => {
 });
 
 app.use("/reservas", criarModuloReservas());
+app.use("/cancelamentos", criarModuloCancelamentos());
 
 app.use(errorHandler);
 

@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
+    "test": "tsx --test test/**/*.test.ts",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate --schema schema.prisma",
     "prisma:push": "tsx src/prisma-cli.ts db push --schema schema.prisma"
