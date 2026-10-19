@@ -1,0 +1,18 @@
+export { Coordenador } from "./entities/coordenador.js";
+export type { CoordenadorProps } from "./entities/coordenador.js";
+export { Endereco } from "./entities/endereco.js";
+export type { EnderecoProps } from "./entities/endereco.js";
+export { Predio } from "./entities/predio.js";
+export type { PredioProps } from "./entities/predio.js";
+export { Professor } from "./entities/professor.js";
+export { Recurso } from "./entities/recurso.js";
+export type { RecursoProps } from "./entities/recurso.js";
+export { Reserva } from "./entities/reserva.js";
+export type { ReservaProps } from "./entities/reserva.js";
+export { Sala } from "./entities/sala.js";
+export type { SalaProps } from "./entities/sala.js";
+export { Usuario } from "./entities/usuario.js";
+export type { UsuarioProps } from "./entities/usuario.js";
+export { Perfil } from "./enums/perfil.js";
+export { StatusReserva } from "./enums/statusReserva.js";
+export { TipoSala } from "./enums/tipoSala.js";

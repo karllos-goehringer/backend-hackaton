@@ -1,0 +1,6 @@
+export enum TipoSala {
+  SALA_AULA = "SALA_AULA",
+  LABORATORIO = "LABORATORIO",
+  AUDITORIO = "AUDITORIO",
+  REUNIAO = "REUNIAO",
+}
