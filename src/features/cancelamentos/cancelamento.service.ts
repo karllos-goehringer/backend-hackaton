@@ -189,6 +189,18 @@ export class CancelamentoService implements ICancelavel {
     if (!reservaAtualizada) {
       throw new NotFoundError("Reserva nao encontrada apos atualizacao.");
     }
+
+    await this.notificacoes.notificarEstadoReserva({
+      tipo: TipoNotificacao.CANCELAMENTO_RESERVA,
+      reservaId: reservaAtualizada.id,
+      solicitanteId: reservaAtualizada.solicitanteId,
+      alteradoPorId: canceladorId,
+      dataHoraInicio: reservaAtualizada.dataHoraInicio,
+      dataHoraFim: reservaAtualizada.dataHoraFim,
+      justificativa,
+      criadoEm: agora,
+    });
+
     return reservaAtualizada;
   }
 }

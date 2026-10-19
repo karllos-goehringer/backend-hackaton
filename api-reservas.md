@@ -14,12 +14,12 @@ Esta documentação descreve os endpoints **efetivamente implementados** no back
   - O fuso horário institucional considerado para cálculo de dia civil, horário de funcionamento e `diaDaSemana` é **`America/Sao_Paulo`**.
 - **Identificadores (`id`, `salaId`, `responsavelId`, `solicitanteId`):**
   - Strings hexadecimais de 24 caracteres (`MongoDB ObjectId`, ex.: `"64b7f0c2a1b2c3d4e5f60718"`).
-- **Pressuposto de Autenticação (área sob responsabilidade da equipe de autenticação):**
-  - Enquanto o middleware definitivo de JWT não é conectado, as rotas leem o cabeçalho HTTP:
+- **Autenticação:**
+  - As rotas protegidas e o WebSocket leem o token JWT no cabeçalho:
     ```http
-    x-usuario-id: <ObjectId do usuário autenticado>
+    Authorization: Bearer <token>
     ```
-  - Caso o cabeçalho esteja ausente, inválido ou o usuário esteja inativo, a API retorna `401 Unauthorized`.
+  - Caso o cabeçalho esteja ausente, inválido ou o usuário esteja inativo, a API retorna `401 Unauthorized` (ou rejeita o handshake WebSocket).
 
 ### Formato Padrão de Erro
 
@@ -41,6 +41,29 @@ Esta documentação descreve os endpoints **efetivamente implementados** no back
   - `CONCLUIDA` *(equivale a `CONCLUIDO` no diagrama)*
 - **`TipoRecorrencia` (`Frequencia`):** `SEMANAL`, `MENSAL`, `SEMESTRAL`, `ANUAL`
 - **`DiaSemana`:** `DOMINGO`, `SEGUNDA`, `TERCA`, `QUARTA`, `QUINTA`, `SEXTA`, `SABADO`
+
+### Notificações em tempo real
+
+O app pode abrir uma conexão WebSocket autenticada em `/notificacoes/ws`. O servidor envia um JSON ao solicitante da reserva quando ela é aprovada, rejeitada ou cancelada. Cada mensagem contém o campo `tipo` (`APROVACAO_RESERVA`, `REJEICAO_RESERVA` ou `CANCELAMENTO_RESERVA`) e os dados da reserva e da ação.
+
+Exemplo de conexão usando `dart:io` no Flutter:
+
+```dart
+import 'dart:convert';
+import 'dart:io';
+
+final socket = await WebSocket.connect(
+  'ws://10.0.2.2:3333/notificacoes/ws',
+  headers: {'Authorization': 'Bearer $token'},
+);
+
+socket.listen((mensagem) {
+  final notificacao = jsonDecode(mensagem as String);
+  print(notificacao['tipo']);
+});
+```
+
+Use o host acessível pelo dispositivo/emulador no lugar de `10.0.2.2` e `wss://` em produção. A conexão não envia notificações antigas; o app recebe os eventos emitidos enquanto estiver conectado.
 
 ---
 
@@ -284,3 +307,79 @@ Lista as solicitações de cancelamento de reservas de alunos enviadas por profe
   ]
   ```
 
+---
+
+## 4. WebSocket de Notificações
+
+### Conexão e autenticação
+
+- **Endpoint:** `ws://<host>:3333/notificacoes/ws` em desenvolvimento. Use `wss://` em produção.
+- **Autenticação:** inclua o JWT no cabeçalho HTTP do handshake: `Authorization: Bearer <token>`. O backend valida a assinatura e expiração do token e confirma no banco que o usuário existe e está ativo. Sem credenciais válidas, o servidor rejeita o handshake com HTTP `401`.
+- **Destinatário:** os eventos são enviados somente às conexões autenticadas cujo usuário corresponda ao `solicitanteId` da reserva. O mesmo usuário pode estar conectado por mais de um dispositivo.
+
+Exemplo para Flutter nativo (Android/iOS), usando `dart:io`:
+
+```dart
+import 'dart:convert';
+import 'dart:io';
+
+final WebSocket socket = await WebSocket.connect(
+  'ws://10.0.2.2:3333/notificacoes/ws',
+  headers: {'Authorization': 'Bearer $token'},
+);
+
+socket.listen(
+  (mensagem) {
+    final evento = jsonDecode(mensagem as String) as Map<String, dynamic>;
+    switch (evento['tipo']) {
+      case 'APROVACAO_RESERVA':
+        // Atualize a interface: a reserva foi confirmada.
+        break;
+      case 'REJEICAO_RESERVA':
+        final motivo = evento['motivo'];
+        break;
+      case 'CANCELAMENTO_RESERVA':
+        final justificativa = evento['justificativa'];
+        break;
+    }
+  },
+  onError: (Object erro) {
+    // Trate a falha e, se necessário, tente reconectar.
+  },
+  onDone: () {
+    // A conexão foi encerrada.
+  },
+);
+```
+
+No emulador Android, `10.0.2.2` aponta para a máquina host. Em um dispositivo físico, substitua-o pelo IP ou domínio do servidor acessível pelo aparelho. Este exemplo é para Flutter nativo; clientes Flutter executados em navegador não podem definir livremente o cabeçalho `Authorization` no handshake WebSocket e precisam de outra estratégia de autenticação.
+
+### Eventos e payloads
+
+O backend envia um objeto JSON por evento. Datas são strings em ISO 8601.
+
+```json
+{
+  "tipo": "APROVACAO_RESERVA",
+  "reservaId": "64b7f0c2a1b2c3d4e5f60718",
+  "solicitanteId": "64b7f0c2a1b2c3d4e5f60222",
+  "alteradoPorId": "64b7f0c2a1b2c3d4e5f60333",
+  "dataHoraInicio": "2026-10-21T13:00:00.000Z",
+  "dataHoraFim": "2026-10-21T13:50:00.000Z",
+  "criadoEm": "2026-10-19T16:00:00.000Z"
+}
+```
+
+| `tipo` | Campos adicionais |
+|---|---|
+| `APROVACAO_RESERVA` | Nenhum |
+| `REJEICAO_RESERVA` | `motivo` |
+| `CANCELAMENTO_RESERVA` | `justificativa` |
+
+Todos os eventos também incluem `reservaId`, `solicitanteId`, `alteradoPorId`, `dataHoraInicio`, `dataHoraFim` e `criadoEm`.
+
+### Conexão interrompida
+
+O WebSocket envia eventos somente enquanto o app está conectado. Não há histórico nem reenvio de notificações perdidas durante uma desconexão. O cliente deve tratar `onError`/`onDone`, reconectar quando apropriado e consultar a API REST para atualizar o estado das reservas.
+
+---

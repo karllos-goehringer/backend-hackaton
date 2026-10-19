@@ -189,7 +189,7 @@ export class ReservasService implements IReservavel {
 
     const novoStatus = estadoDaReserva(reserva.status).aprovar();
 
-    return executarTransacao(this.prisma, async (tx) => {
+    const aprovada = await executarTransacao(this.prisma, async (tx) => {
       const reservas = new ReservasRepository(tx);
       await new SalasRepository(tx).travarAgenda(reserva.salaId);
 
@@ -213,6 +213,18 @@ export class ReservasService implements IReservavel {
       });
       return this.recarregar(reservas, reserva.id);
     });
+
+    await this.notificacoes.notificarEstadoReserva({
+      tipo: TipoNotificacao.APROVACAO_RESERVA,
+      reservaId: aprovada.id,
+      solicitanteId: aprovada.solicitanteId,
+      alteradoPorId: ator.id,
+      dataHoraInicio: aprovada.dataHoraInicio,
+      dataHoraFim: aprovada.dataHoraFim,
+      criadoEm: agora,
+    });
+
+    return aprovada;
   }
 
   async rejeitar(ator: AtorReserva, reservaId: string, motivo: string): Promise<ComDiaDaSemana<Reserva>> {
@@ -227,7 +239,20 @@ export class ReservasService implements IReservavel {
       analisadoPorId: ator.id,
       analisadoEm: agora,
     });
-    return this.recarregar(reservas, reserva.id);
+    const rejeitada = await this.recarregar(reservas, reserva.id);
+
+    await this.notificacoes.notificarEstadoReserva({
+      tipo: TipoNotificacao.REJEICAO_RESERVA,
+      reservaId: rejeitada.id,
+      solicitanteId: rejeitada.solicitanteId,
+      alteradoPorId: ator.id,
+      dataHoraInicio: rejeitada.dataHoraInicio,
+      dataHoraFim: rejeitada.dataHoraFim,
+      motivo,
+      criadoEm: agora,
+    });
+
+    return rejeitada;
   }
 
   /** Delega ao CancelamentoService central para manter uma unica fonte de verdade entre rotas. */
