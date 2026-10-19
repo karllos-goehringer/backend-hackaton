@@ -1,12 +1,8 @@
-/**
- * Nivel de acesso ATIVO do usuario em relacao a uma sala (Usuario.obterNivelAcessoAtivo(predio)).
- * Nao e persistido: deriva do tipo de credencial e das lotacoes de coordenacao vigentes.
- * O documento tambem cita ADMIN_CAMPUS, mas nao define regras para ele; por isso nao foi incluido.
- */
+/** Nível de acesso funcional armazenado/derivado para autorização. */
 export enum NivelAcesso {
-  ALUNO = "ALUNO",
-  TECNICO = "TECNICO",
-  PROFESSOR = "PROFESSOR",
-  COORDENADOR = "COORDENADOR",
+  ALUNO = 0,
+  PROFESSOR = 1,
+  COORDENADOR = 2,
+  TECNICO = 3,
 }
 

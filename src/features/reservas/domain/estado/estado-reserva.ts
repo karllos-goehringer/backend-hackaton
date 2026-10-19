@@ -5,7 +5,7 @@ import { ConflictError } from "../../../../shared/errors/app-error.js";
  * State Pattern: cada status sabe quais transicoes sao legais e qual e o proximo status.
  *
  *   PENDENTE_APROVACAO -> APROVADA | REJEITADA | CANCELADA
- *   APROVADA           -> CANCELADA | CONCLUIDA
+ *   APROVADA/AGENDADO  -> CANCELADA | CONCLUIDA
  *   REJEITADA, CANCELADA, CONCLUIDA -> (terminais)
  */
 export interface EstadoReserva {
@@ -69,6 +69,18 @@ class EstadoAprovada extends EstadoReservaBase {
   }
 }
 
+class EstadoAgendado extends EstadoReservaBase {
+  readonly status = StatusReserva.AGENDADO;
+
+  override cancelar(): StatusReserva {
+    return StatusReserva.CANCELADA;
+  }
+
+  override concluir(): StatusReserva {
+    return StatusReserva.CONCLUIDA;
+  }
+}
+
 class EstadoRejeitada extends EstadoReservaBase {
   readonly status = StatusReserva.REJEITADA;
 }
@@ -84,6 +96,7 @@ class EstadoConcluida extends EstadoReservaBase {
 const ESTADOS: Record<StatusReserva, EstadoReserva> = {
   [StatusReserva.PENDENTE_APROVACAO]: new EstadoPendenteAprovacao(),
   [StatusReserva.APROVADA]: new EstadoAprovada(),
+  [StatusReserva.AGENDADO]: new EstadoAgendado(),
   [StatusReserva.REJEITADA]: new EstadoRejeitada(),
   [StatusReserva.CANCELADA]: new EstadoCancelada(),
   [StatusReserva.CONCLUIDA]: new EstadoConcluida(),

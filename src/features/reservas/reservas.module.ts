@@ -1,6 +1,6 @@
 import type { Router } from "express";
 import { prisma } from "../../shared/config/database.js";
-import { identificacaoProvisoria } from "../autenticacao/identificacao-provisoria.middleware.js";
+import { autenticarToken } from "../autenticacao/autenticacao.middleware.js";
 import { notificacoesService } from "../cancelamentos/cancelamento.module.js";
 import { CancelamentoService } from "../cancelamentos/cancelamento.service.js";
 import { EscopoCoordenacaoService } from "../coordenacao/escopo-coordenacao.service.js";
@@ -32,6 +32,6 @@ export function criarModuloReservas(): Router {
 
   return criarReservasRouter(
     new ReservasController(service),
-    identificacaoProvisoria(new UsuariosRepository(prisma)),
+    autenticarToken(new UsuariosRepository(prisma)),
   );
 }

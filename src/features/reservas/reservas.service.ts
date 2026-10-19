@@ -93,9 +93,9 @@ export class ReservasService implements IReservavel {
       const reservas = new ReservasRepository(tx);
       const usuarios = new UsuariosRepository(tx);
 
-      // Apenas reservas nascidas APROVADAS podem gerar double-booking: serializa a agenda da sala.
-      if (status === StatusReserva.APROVADA) await new SalasRepository(tx).travarAgenda(sala.id);
-      // Serializa pedidos concorrentes do mesmo aluno/tecnico para os limites de 12h e diario.
+      if (status === StatusReserva.APROVADA || status === StatusReserva.AGENDADO) {
+        await new SalasRepository(tx).travarAgenda(sala.id);
+      }
       if (politica.exigeQuota12Horas) await usuarios.travarSolicitacoes(ator.id);
 
       await this.pipeline.validar({ ator, politica, sala, responsavelId, ocorrencias, agora, reservas, usuarios });
@@ -194,14 +194,14 @@ export class ReservasService implements IReservavel {
       await new SalasRepository(tx).travarAgenda(reserva.salaId);
 
       const ocorrencia = { inicio: reserva.dataHoraInicio, fim: reserva.dataHoraFim };
-      const aprovadas = await reservas.listarIntervalosNaJanela(
+      const bloqueantes = await reservas.listarIntervalosNaJanela(
         reserva.salaId,
-        StatusReserva.APROVADA,
+        [StatusReserva.APROVADA, StatusReserva.AGENDADO],
         ocorrencia.inicio,
         ocorrencia.fim,
         reserva.id,
       );
-      garantirSemConflito([ocorrencia], aprovadas);
+      garantirSemConflito([ocorrencia], bloqueantes);
 
       await this.transicionar(reservas, reserva, {
         status: novoStatus,

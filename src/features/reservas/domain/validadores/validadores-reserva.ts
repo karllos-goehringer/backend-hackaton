@@ -140,8 +140,10 @@ export class ValidadorLimiteDiarioReservas extends ValidadorReserva {
 /** Passo 2.5: Aluno nunca pode ser definido como responsavel de nenhuma reserva. */
 export class ValidadorResponsavelNaoAluno extends ValidadorReserva {
   protected async executar({ ator, responsavelId, usuarios }: ContextoValidacaoReserva): Promise<void> {
-    if (responsavelId === ator.id) return; // self-reference, checked by the policy
     const responsavel = await usuarios.buscarResumoPorId(responsavelId);
+    if (responsavelId === ator.id && ator.tipoCredencial === TipoCredencial.MATRICULA_ALUNO) {
+      throw new BusinessRuleError("Aluno nao pode ser responsavel por uma reserva, nem mesmo pela propria.");
+    }
     if (responsavel && responsavel.tipoCredencial === TipoCredencial.MATRICULA_ALUNO) {
       throw new BusinessRuleError("Alunos nao podem ser definidos como responsaveis de reservas.");
     }
@@ -157,9 +159,21 @@ export class ValidadorQuota12HorasAluno extends ValidadorReserva {
   static readonly LIMITE_JANELA_12H = 2;
 
   protected async executar({ politica, ator, ocorrencias, agora, reservas }: ContextoValidacaoReserva): Promise<void> {
+    const desde = new Date(agora.getTime() - ValidadorQuota12HorasAluno.JANELA_MS);
+
+    if (politica.exigeQuotaPendente12Horas) {
+      const pendentes = await reservas.contarPorSolicitanteEStatusDesde(
+        ator.id,
+        StatusReserva.PENDENTE_APROVACAO,
+        desde,
+      );
+      if (pendentes > 0) {
+        throw new BusinessRuleError("Alunos podem ter apenas 1 reserva pendente a cada 12 horas.");
+      }
+    }
+
     if (!politica.exigeQuota12Horas) return;
 
-    const desde = new Date(agora.getTime() - ValidadorQuota12HorasAluno.JANELA_MS);
     const criadasNaJanela =
       typeof reservas.contarAtivasPorSolicitanteDesde === "function"
         ? await reservas.contarAtivasPorSolicitanteDesde(ator.id, desde)
@@ -196,13 +210,13 @@ export class ValidadorEscopoDelegacao extends ValidadorReserva {
 export class ValidadorConflitoSala extends ValidadorReserva {
   protected async executar({ sala, ocorrencias, reservas }: ContextoValidacaoReserva): Promise<void> {
     const janela = janelaDasOcorrencias(ocorrencias);
-    const aprovadas = await reservas.listarIntervalosNaJanela(
+    const bloqueantes = await reservas.listarIntervalosNaJanela(
       sala.id,
-      StatusReserva.APROVADA,
+      [StatusReserva.APROVADA, StatusReserva.AGENDADO],
       janela.inicio,
       janela.fim,
     );
-    garantirSemConflito(ocorrencias, aprovadas);
+    garantirSemConflito(ocorrencias, bloqueantes);
   }
 }
 

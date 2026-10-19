@@ -95,7 +95,7 @@ export class ReservasRepository {
   /** Reservas da sala com o status informado que tocam a janela [de, ate). */
   async listarIntervalosNaJanela(
     salaId: string,
-    status: StatusReserva,
+    status: StatusReserva | StatusReserva[],
     de: Date,
     ate: Date,
     ignorarId?: string,
@@ -103,7 +103,7 @@ export class ReservasRepository {
     const reservas = await this.db.reserva.findMany({
       where: {
         salaId,
-        status,
+        status: Array.isArray(status) ? { in: [...status] } : status,
         dataHoraInicio: { lt: ate },
         dataHoraFim: { gt: de },
         ...(ignorarId ? { id: { not: ignorarId } } : {}),
