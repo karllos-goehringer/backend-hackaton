@@ -21,6 +21,7 @@ export interface NovaReservaCommand {
   dataHoraInicio: Date;
   dataHoraFim: Date;
   finalidade: string;
+  observacoes?: string;
   responsavelId?: string;
   recorrencia?: RegraRecorrencia;
 }

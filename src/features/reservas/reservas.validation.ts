@@ -105,6 +105,7 @@ export function validarCriacaoReserva(corpo: unknown): NovaReservaCommand {
   if (corpo.responsavelId !== undefined && !ehObjectId(corpo.responsavelId)) {
     erros.responsavelId = "Informe um id de usuario valido.";
   }
+  const observacoes = typeof corpo.observacoes === "string" ? corpo.observacoes.trim() : undefined;
   const recorrencia = corpo.recorrencia === undefined ? undefined : lerRecorrencia(corpo.recorrencia, erros);
 
   if (Object.keys(erros).length > 0 || !dataHoraInicio || !dataHoraFim || !finalidade) {
@@ -116,6 +117,7 @@ export function validarCriacaoReserva(corpo: unknown): NovaReservaCommand {
     dataHoraInicio,
     dataHoraFim,
     finalidade,
+    ...(observacoes ? { observacoes } : {}),
     ...(corpo.responsavelId !== undefined ? { responsavelId: corpo.responsavelId as string } : {}),
     ...(recorrencia ? { recorrencia } : {}),
   };

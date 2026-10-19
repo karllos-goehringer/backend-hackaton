@@ -26,6 +26,7 @@ datasource db {
 enum TipoCredencial {
   MATRICULA_ALUNO
   SIAPE_DOCENTE
+  SIAPE_TECNICO
 }
 
 enum StatusReserva {
@@ -249,6 +250,7 @@ model Reserva {
   dataHoraInicio     DateTime
   dataHoraFim        DateTime
   finalidade         String
+  observacoes        String?
   status             StatusReserva @default(PENDENTE_APROVACAO)
   motivoRejeicao     String?
   cancelamento       Cancelamento?

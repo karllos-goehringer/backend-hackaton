@@ -1,0 +1,173 @@
+import { StatusReserva, TipoCredencial, type PrismaClient, type Reserva } from "@prisma/client";
+import { ConflictError, ForbiddenError, NotFoundError } from "../../shared/errors/app-error.js";
+import { EscopoCoordenacaoService } from "../coordenacao/escopo-coordenacao.service.js";
+import { LotacoesRepository } from "../coordenacao/lotacoes.repository.js";
+import { TipoNotificacao } from "../notificacoes/notificacao.types.js";
+import type { NotificacoesService } from "../notificacoes/notificacoes.service.js";
+import type { ICancelavel } from "../reservas/domain/contratos/cancelavel.interface.js";
+import { estadoDaReserva } from "../reservas/domain/estado/estado-reserva.js";
+import { NivelAcesso } from "../reservas/domain/nivel-acesso.js";
+import { ResolvedorPoliticaReserva, type AtorReserva } from "../reservas/domain/politicas/resolvedor-politica.js";
+import { ReservasRepository } from "../reservas/reservas.repository.js";
+
+export interface DependenciasCancelamentoService {
+  prisma: PrismaClient;
+  notificacoes: NotificacoesService;
+  relogio?: () => Date;
+}
+
+export interface ResultadoCancelamento {
+  reserva: Reserva | null;
+  solicitacaoEnviada: boolean;
+  mensagem: string;
+}
+
+/**
+ * Servico responsavel pelo fluxo e regras de cancelamento de reservas (Passo 4 do plano de acao).
+ * Implementa ICancelavel.
+ */
+export class CancelamentoService implements ICancelavel {
+  private readonly prisma: PrismaClient;
+  private readonly notificacoes: NotificacoesService;
+  private readonly relogio: () => Date;
+
+  constructor(deps: DependenciasCancelamentoService) {
+    this.prisma = deps.prisma;
+    this.notificacoes = deps.notificacoes;
+    this.relogio = deps.relogio ?? (() => new Date());
+  }
+
+  /**
+   * Implementacao do contrato ICancelavel (efetivacao direta).
+   */
+  async cancelarReserva(reserva: Reserva, canceladorId: string, justificativa: string): Promise<void> {
+    await this.efetivarCancelamento(reserva, canceladorId, justificativa, this.relogio());
+  }
+
+  /**
+   * Processa uma acao de cancelamento ou solicitacao de cancelamento conforme o perfil do usuario.
+   */
+  async cancelar(
+    ator: AtorReserva,
+    reservaId: string,
+    justificativa: string,
+  ): Promise<ResultadoCancelamento> {
+    const agora = this.relogio();
+    const reservasRepo = new ReservasRepository(this.prisma);
+    const reserva = await reservasRepo.buscarComLocalizacao(reservaId);
+
+    if (!reserva) {
+      throw new NotFoundError("Reserva nao encontrada.");
+    }
+
+    const escopo = new EscopoCoordenacaoService(new LotacoesRepository(this.prisma));
+    const resolvedor = new ResolvedorPoliticaReserva(escopo);
+    const politica = await resolvedor.resolver(ator, reserva, agora);
+    const nivel = politica.nivel;
+
+    // 1. Aluno: pode cancelar apenas a propria reserva
+    if (nivel === NivelAcesso.ALUNO) {
+      if (reserva.solicitanteId !== ator.id) {
+        throw new ForbiddenError("Alunos nao tem permissao para cancelar reservas de outros usuarios.");
+      }
+      const cancelada = await this.efetivarCancelamento(reserva, ator.id, justificativa, agora);
+      return {
+        reserva: cancelada,
+        solicitacaoEnviada: false,
+        mensagem: "Reserva cancelada com sucesso.",
+      };
+    }
+
+    // 2. Coordenador: pode cancelar qualquer reserva
+    if (nivel === NivelAcesso.COORDENADOR) {
+      const cancelada = await this.efetivarCancelamento(reserva, ator.id, justificativa, agora);
+      return {
+        reserva: cancelada,
+        solicitacaoEnviada: false,
+        mensagem: "Reserva cancelada pelo coordenador.",
+      };
+    }
+
+    // 3. Professor: pode cancelar a propria reserva ou solicitar cancelamento de reserva de aluno
+    if (nivel === NivelAcesso.PROFESSOR) {
+      const ehPropria = reserva.solicitanteId === ator.id || reserva.responsavelId === ator.id;
+      if (ehPropria) {
+        const cancelada = await this.efetivarCancelamento(reserva, ator.id, justificativa, agora);
+        return {
+          reserva: cancelada,
+          solicitacaoEnviada: false,
+          mensagem: "Reserva cancelada com sucesso.",
+        };
+      }
+
+      // Se nao for propria, verifica se a reserva e de um aluno
+      const detalhe = await reservasRepo.buscarParaCancelamento(reservaId);
+      if (detalhe && detalhe.solicitanteTipo === TipoCredencial.MATRICULA_ALUNO) {
+        // Envia solicitacao para o coordenador do departamento do responsavel
+        await this.notificacoes.notificarSolicitacaoCancelamento({
+          tipo: TipoNotificacao.SOLICITACAO_CANCELAMENTO,
+          reservaId: reserva.id,
+          solicitadoPorId: ator.id,
+          departamentoId: detalhe.responsavelDepartamentoId ?? undefined,
+          justificativa,
+          criadoEm: agora,
+        });
+
+        return {
+          reserva: null,
+          solicitacaoEnviada: true,
+          mensagem: "Solicitacao de cancelamento enviada ao coordenador do departamento para avaliacao.",
+        };
+      }
+
+      throw new ForbiddenError("Professores so podem cancelar as proprias reservas ou solicitar cancelamento de reservas de alunos.");
+    }
+
+    // 4. Tecnico: cancela apenas a propria reserva
+    if (nivel === NivelAcesso.TECNICO) {
+      const ehPropria = reserva.solicitanteId === ator.id || reserva.responsavelId === ator.id;
+      if (!ehPropria) {
+        throw new ForbiddenError("Tecnicos podem cancelar apenas as proprias reservas.");
+      }
+      const cancelada = await this.efetivarCancelamento(reserva, ator.id, justificativa, agora);
+      return {
+        reserva: cancelada,
+        solicitacaoEnviada: false,
+        mensagem: "Reserva cancelada com sucesso.",
+      };
+    }
+
+    throw new ForbiddenError("Voce nao tem permissao para cancelar esta reserva.");
+  }
+
+  private async efetivarCancelamento(
+    reserva: Reserva,
+    canceladorId: string,
+    justificativa: string,
+    agora: Date,
+  ): Promise<Reserva> {
+    const novoStatus = estadoDaReserva(reserva.status).cancelar();
+    const reservasRepo = new ReservasRepository(this.prisma);
+
+    const atualizada = await reservasRepo.atualizarSeStatus(reserva.id, reserva.status, {
+      status: novoStatus,
+      cancelamento: {
+        set: {
+          canceladoPorId: canceladorId,
+          justificativa,
+          canceladoEm: agora,
+        },
+      },
+    });
+
+    if (!atualizada) {
+      throw new ConflictError("A reserva foi alterada por outra operacao. Recarregue e tente novamente.");
+    }
+
+    const reservaAtualizada = await reservasRepo.buscarPorId(reserva.id);
+    if (!reservaAtualizada) {
+      throw new NotFoundError("Reserva nao encontrada apos atualizacao.");
+    }
+    return reservaAtualizada;
+  }
+}
