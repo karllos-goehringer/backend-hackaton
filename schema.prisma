@@ -106,6 +106,20 @@ model Departamento {
   @@unique([setorId, nome])
 }
 
+model CatalogoDepartamentosCoordenacao {
+  id            String                       @id @map("_id")
+  departamentos DepartamentoElegivelCatalogo[]
+
+  @@map("catalogo_departamentos_coordenacao")
+}
+
+type DepartamentoElegivelCatalogo {
+  id        String
+  nome      String
+  diretoria String
+  sigla     String?
+}
+
 model Curso {
   id      String @id @default(auto()) @map("_id") @db.ObjectId
   setorId String @db.ObjectId

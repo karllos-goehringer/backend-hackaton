@@ -4,12 +4,14 @@ import app from "./app";
 import { notificacoesService } from "./features/cancelamentos/cancelamento.module.js";
 import { NotificacoesWebSocket } from "./features/notificacoes/notificacoes.websocket.js";
 import { UsuariosRepository } from "./features/usuarios/usuarios.repository.js";
+import { sincronizarCatalogoDepartamentos } from "./features/usuarios/departamentos-elegiveis.repository.js";
 import { connectToMongoDB, disconnectFromMongoDB, prisma } from "./shared/config/database.js";
 
 const port = Number(process.env.PORT) || 3333;
 
 async function startServer(): Promise<void> {
   await connectToMongoDB();
+  await sincronizarCatalogoDepartamentos(prisma);
 
   const server = createServer(app);
   const notificacoesWebSocket = new NotificacoesWebSocket(

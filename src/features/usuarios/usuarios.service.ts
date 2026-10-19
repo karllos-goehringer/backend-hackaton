@@ -7,6 +7,8 @@ import { executarTransacao } from "../../shared/database/transacao.js";
 import { NivelAcesso } from "./nivel-acesso.js";
 import type { CadastroUsuarioDTO } from "./cadastro-usuario.dto.js";
 import { TipoEntrada, type AutenticarCredencialDTO, type CredencialAutenticadaDTO } from "./credencial.dto.js";
+import { ID_CATALOGO_DEPARTAMENTOS } from "./departamentos-elegiveis.repository.js";
+import type { DepartamentoElegivel } from "./departamentos-elegiveis.js";
 import { UsuariosRepository } from "./usuarios.repository.js";
 
 const CUSTO_HASH = 12;
@@ -84,6 +86,18 @@ export class UsuariosService {
       }
       throw error;
     }
+  }
+
+  async listarDepartamentosElegiveis(): Promise<DepartamentoElegivel[]> {
+    const catalogo = await this.prisma.catalogoDepartamentosCoordenacao.findUnique({
+      where: { id: ID_CATALOGO_DEPARTAMENTOS },
+      select: { departamentos: true },
+    });
+    if (!catalogo) throw new Error("Catálogo de departamentos elegíveis não foi inicializado.");
+    return catalogo.departamentos.map(({ sigla, ...departamento }) => ({
+      ...departamento,
+      ...(sigla ? { sigla } : {}),
+    }));
   }
 
   async autenticar(dto: AutenticarCredencialDTO): Promise<CredencialAutenticadaDTO> {
