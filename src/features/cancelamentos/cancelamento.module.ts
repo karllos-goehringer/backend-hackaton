@@ -1,6 +1,6 @@
 import type { Router } from "express";
 import { prisma } from "../../shared/config/database.js";
-import { identificacaoProvisoria } from "../autenticacao/identificacao-provisoria.middleware.js";
+import { autenticarToken } from "../autenticacao/autenticacao.middleware.js";
 import { NotificacoesService } from "../notificacoes/notificacoes.service.js";
 import { UsuariosRepository } from "../usuarios/usuarios.repository.js";
 import { CancelamentoController } from "./cancelamento.controller.js";
@@ -18,6 +18,6 @@ export function criarModuloCancelamentos(): Router {
 
   return criarCancelamentoRouter(
     new CancelamentoController(service),
-    identificacaoProvisoria(new UsuariosRepository(prisma)),
+    autenticarToken(new UsuariosRepository(prisma)),
   );
 }

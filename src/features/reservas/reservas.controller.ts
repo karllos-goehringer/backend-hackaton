@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { obterAtor } from "../autenticacao/identificacao-provisoria.middleware.js";
+import { obterAtor } from "../autenticacao/autenticacao.middleware.js";
 import type { ReservasService } from "./reservas.service.js";
 import {
   validarCriacaoReserva,

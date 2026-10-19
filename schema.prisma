@@ -29,9 +29,18 @@ enum TipoCredencial {
   SIAPE_TECNICO
 }
 
+enum TipoEntradaCredencial {
+  LOCAL
+  CORPORATIVA
+  OAUTH
+}
+
+// Reserva agendada diretamente por um Professor; nao requer aprovacao da coordenacao.
+
 enum StatusReserva {
   PENDENTE_APROVACAO
   APROVADA
+  AGENDADO
   REJEITADA
   CANCELADA
   CONCLUIDA
@@ -117,7 +126,9 @@ model Usuario {
   telefone           String?
   codigoLogin        String         @unique // Matricula (aluno) ou SIAPE (docente), normalizado
   tipoCredencial     TipoCredencial
-  senhaHash          String
+  // Nivel base numerico: 0 aluno, 1 professor, 2 coordenador, 3 tecnico.
+  // Coordenacao vigente continua sendo derivada da lotacao (Role Object).
+  nivelAcesso        Int            @default(0)
   ativo              Boolean        @default(true)
   criadoEm           DateTime       @default(now())
 
@@ -132,6 +143,8 @@ model Usuario {
   // serializar pedidos concorrentes do mesmo aluno (quota de 12 horas).
   versaoSolicitacoes Int @default(0)
 
+  credenciais Credencial[]
+
   curso        Curso?        @relation(fields: [cursoId], references: [id])
   departamento Departamento? @relation(fields: [departamentoId], references: [id])
 
@@ -143,6 +156,20 @@ model Usuario {
 
   @@index([cursoId])
   @@index([departamentoId])
+}
+
+model Credencial {
+  id         String               @id @default(auto()) @map("_id") @db.ObjectId
+  usuarioId  String               @db.ObjectId
+  tipoEntrada TipoEntradaCredencial
+  entrada    String               @unique
+  senhaHash  String
+  criadoEm   DateTime             @default(now())
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@unique([usuarioId, tipoEntrada])
+  @@index([usuarioId])
 }
 
 // Vinculo temporario (portaria) de um docente como coordenador de um Predio e, opcionalmente, de um Setor.

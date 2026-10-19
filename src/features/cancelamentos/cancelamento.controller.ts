@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { obterAtor } from "../autenticacao/identificacao-provisoria.middleware.js";
+import { obterAtor } from "../autenticacao/autenticacao.middleware.js";
 import { validarIdReserva, validarJustificativaCancelamento } from "../reservas/reservas.validation.js";
 import type { CancelamentoService } from "./cancelamento.service.js";
 
