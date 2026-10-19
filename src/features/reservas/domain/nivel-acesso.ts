@@ -5,6 +5,7 @@
  */
 export enum NivelAcesso {
   ALUNO = "ALUNO",
+  TECNICO = "TECNICO",
   PROFESSOR = "PROFESSOR",
   COORDENADOR = "COORDENADOR",
 }

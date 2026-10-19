@@ -49,6 +49,7 @@ export class ReservaFactory {
       dataHoraInicio: ocorrencia.inicio,
       dataHoraFim: ocorrencia.fim,
       finalidade: params.comando.finalidade,
+      observacoes: params.comando.observacoes,
       status: params.status,
       criadoEm: params.agora,
       ...(autoAprovada ? { analisadoPorId: params.solicitanteId, analisadoEm: params.agora } : {}),

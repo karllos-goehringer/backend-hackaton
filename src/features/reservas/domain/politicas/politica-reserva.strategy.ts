@@ -63,12 +63,31 @@ export class PoliticaAlunoStrategy extends PoliticaSemPrivilegios {
   readonly nivel = NivelAcesso.ALUNO;
   readonly exigeQuota12Horas = true;
   protected readonly rotulo = "Alunos";
+
+  override validarCriacao({ recorrente, delegada }: IntencaoCriacao): void {
+    if (recorrente) {
+      throw new ForbiddenError("Alunos nao podem criar reservas recorrentes.");
+    }
+    if (!delegada) {
+      throw new ForbiddenError("Alunos devem obrigatoriamente indicar um responsavel (Servidor ou Coordenacao).");
+    }
+  }
 }
 
 export class PoliticaProfessorStrategy extends PoliticaSemPrivilegios {
   readonly nivel = NivelAcesso.PROFESSOR;
   readonly exigeQuota12Horas = false;
   protected readonly rotulo = "Professores";
+
+  override definirStatusInicial(): StatusReserva {
+    return StatusReserva.APROVADA;
+  }
+}
+
+export class PoliticaTecnicoStrategy extends PoliticaSemPrivilegios {
+  readonly nivel = NivelAcesso.TECNICO;
+  readonly exigeQuota12Horas = true;
+  protected readonly rotulo = "Tecnicos";
 }
 
 /** Aplicada somente quando o docente tem lotacao vigente sobre o Predio/Setor da sala. */
