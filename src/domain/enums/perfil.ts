@@ -1,4 +1,0 @@
-export enum Perfil {
-  PROFESSOR = "PROFESSOR",
-  COORDENADOR = "COORDENADOR",
-}
