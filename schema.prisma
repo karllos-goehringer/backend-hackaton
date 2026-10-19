@@ -254,8 +254,9 @@ model Reserva {
   status             StatusReserva @default(PENDENTE_APROVACAO)
   motivoRejeicao     String?
   cancelamento       Cancelamento?
-  criadoEm           DateTime      @default(now())
-  analisadoEm        DateTime?
+  criadoEm                DateTime      @default(now())
+  aceitoPeloResponsavelEm DateTime?
+  analisadoEm             DateTime?
 
   sala             Sala              @relation(fields: [salaId], references: [id], onDelete: Restrict)
   solicitante      Usuario           @relation("Solicitante", fields: [solicitanteId], references: [id], onDelete: Restrict)

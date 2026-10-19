@@ -17,12 +17,41 @@ export interface ReservaParaCancelamento extends ReservaComLocalizacao {
   responsavelDepartamentoId: string | null;
 }
 
+export interface FiltrosListagemReservas {
+  salaId?: string;
+  status?: StatusReserva;
+  solicitanteId?: string;
+  responsavelId?: string;
+  inicio?: Date;
+  fim?: Date;
+}
+
 /** Acesso a dados de reservas. Sem regras de negocio: apenas consultas e escritas parametrizadas. */
 export class ReservasRepository {
   constructor(private readonly db: DbClient) {}
 
   buscarPorId(id: string): Promise<Reserva | null> {
     return this.db.reserva.findUnique({ where: { id } });
+  }
+
+  listar(filtros: FiltrosListagemReservas = {}): Promise<Reserva[]> {
+    return this.db.reserva.findMany({
+      where: {
+        ...(filtros.salaId ? { salaId: filtros.salaId } : {}),
+        ...(filtros.status ? { status: filtros.status } : {}),
+        ...(filtros.solicitanteId ? { solicitanteId: filtros.solicitanteId } : {}),
+        ...(filtros.responsavelId ? { responsavelId: filtros.responsavelId } : {}),
+        ...(filtros.inicio || filtros.fim
+          ? {
+              dataHoraInicio: {
+                ...(filtros.inicio ? { gte: filtros.inicio } : {}),
+                ...(filtros.fim ? { lt: filtros.fim } : {}),
+              },
+            }
+          : {}),
+      },
+      orderBy: { dataHoraInicio: "asc" },
+    });
   }
 
   async buscarComLocalizacao(id: string): Promise<ReservaComLocalizacao | null> {
@@ -38,6 +67,17 @@ export class ReservasRepository {
   contarPorSolicitanteEStatusDesde(solicitanteId: string, status: StatusReserva, desde: Date): Promise<number> {
     return this.db.reserva.count({
       where: { solicitanteId, status, criadoEm: { gte: desde } },
+    });
+  }
+
+  /** Conta reservas ativas (nao canceladas/rejeitadas) criadas pelo solicitante desde o instante informado. */
+  contarAtivasPorSolicitanteDesde(solicitanteId: string, desde: Date): Promise<number> {
+    return this.db.reserva.count({
+      where: {
+        solicitanteId,
+        status: { notIn: ["CANCELADA", "REJEITADA"] },
+        criadoEm: { gte: desde },
+      },
     });
   }
 
@@ -109,7 +149,7 @@ export class ReservasRepository {
     return count === 1;
   }
 
-  /** Busca reserva com dados do solicitante e responsavel para fluxo de cancelamento. */
+  /** Busca reserva com dados do solicitante e responsavel para fluxo de cancelamento e aprovacao. */
   async buscarParaCancelamento(id: string): Promise<ReservaParaCancelamento | null> {
     const reserva = await this.db.reserva.findUnique({
       where: { id },
@@ -126,7 +166,7 @@ export class ReservasRepository {
       predioId: sala.predioId,
       setorId: sala.predio.setorId,
       solicitanteTipo: solicitante.tipoCredencial,
-      responsavelDepartamentoId: responsavel.departamentoId,
+      responsavelDepartamentoId: responsavel?.departamentoId ?? null,
     };
   }
 }

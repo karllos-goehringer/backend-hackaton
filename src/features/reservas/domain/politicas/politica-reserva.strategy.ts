@@ -16,12 +16,11 @@ export interface IntencaoCriacao {
 }
 
 /**
- * Strategy Pattern: regras que variam conforme o papel ATIVO do usuario sobre a sala
- * (IPoliticaReservaStrategy + IPoliticaCancelamentoStrategy do documento).
+ * Strategy Pattern: regras que variam conforme o papel ATIVO do usuario sobre a sala.
  */
 export interface PoliticaReservaStrategy {
   readonly nivel: NivelAcesso;
-  /** Sujeita o solicitante ao limite de 1 reserva pendente a cada 12 horas. */
+  /** Sujeita o solicitante aos limites de Aluno/Tecnico (antecedencia de 12h e ate 2 reservas/12h e por dia). */
   readonly exigeQuota12Horas: boolean;
   /** Lanca ForbiddenError se o papel nao permite recorrencia ou delegacao. */
   validarCriacao(intencao: IntencaoCriacao): void;
@@ -30,7 +29,7 @@ export interface PoliticaReservaStrategy {
   podeAprovarOuRejeitar(): boolean;
 }
 
-/** Base para Aluno e Professor: sem recorrencia, sem delegacao, cancelam apenas as proprias antes do inicio. */
+/** Base para Aluno, Professor e Tecnico: sem recorrencia, sem delegacao livre, cancelam as proprias antes do inicio. */
 abstract class PoliticaSemPrivilegios implements PoliticaReservaStrategy {
   abstract readonly nivel: NivelAcesso;
   abstract readonly exigeQuota12Horas: boolean;
@@ -50,7 +49,7 @@ abstract class PoliticaSemPrivilegios implements PoliticaReservaStrategy {
   }
 
   podeCancelar(atorId: string, reserva: ReservaParaPermissao, agora: Date): boolean {
-    const propria = reserva.solicitanteId === atorId || reserva.responsavelId === atorId;
+    const propria = reserva.solicitanteId === atorId;
     return propria && agora.getTime() < reserva.dataHoraInicio.getTime();
   }
 
@@ -103,12 +102,11 @@ export class PoliticaCoordenadorStrategy implements PoliticaReservaStrategy {
     return StatusReserva.APROVADA;
   }
 
-  podeCancelar(): boolean {
-    return true;
+  podeCancelar(_atorId: string, reserva: ReservaParaPermissao, agora: Date): boolean {
+    return agora.getTime() < reserva.dataHoraInicio.getTime();
   }
 
   podeAprovarOuRejeitar(): boolean {
     return true;
   }
 }
-

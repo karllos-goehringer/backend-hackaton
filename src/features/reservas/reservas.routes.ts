@@ -5,11 +5,13 @@ export function criarReservasRouter(controller: ReservasController, autenticar: 
   const router = Router();
 
   router.use(autenticar);
+  router.get("/", controller.listar);
+  router.get("/:id", controller.buscarPorId);
   router.post("/", controller.criar);
+  router.patch("/:id/aceitar-responsabilidade", controller.aceitarResponsabilidade);
   router.patch("/:id/aprovar", controller.aprovar);
   router.patch("/:id/rejeitar", controller.rejeitar);
   router.patch("/:id/cancelar", controller.cancelar);
 
   return router;
 }
-

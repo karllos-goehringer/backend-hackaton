@@ -1,7 +1,11 @@
 import { StatusReserva, type Prisma } from "@prisma/client";
 import { dataCivil } from "../../../../shared/utils/data-hora.js";
 import type { NovaReservaCommand, Ocorrencia, RegraRecorrencia } from "../reserva.types.js";
-import { GeradorRecorrencia } from "./gerador-recorrencia.js";
+import {
+  GeradorRecorrencia,
+  resolverDataFimRecorrencia,
+  resolverDiasSemanaRecorrencia,
+} from "./gerador-recorrencia.js";
 
 export interface ParametrosCriacaoReservas {
   comando: NovaReservaCommand;
@@ -29,17 +33,17 @@ export class ReservaFactory {
     comando: NovaReservaCommand & { recorrencia: RegraRecorrencia },
     coordenadorId: string,
   ): Prisma.SerieRecorrenciaUncheckedCreateInput {
+    const dataInicio = dataCivil(comando.dataHoraInicio);
     return {
       criadoPorId: coordenadorId,
       tipoRecorrencia: comando.recorrencia.tipo,
-      dataInicio: dataCivil(comando.dataHoraInicio),
-      dataFim: comando.recorrencia.dataFim,
-      diasSemana: comando.recorrencia.diasSemana,
+      dataInicio,
+      dataFim: resolverDataFimRecorrencia(dataInicio, comando.recorrencia),
+      diasSemana: resolverDiasSemanaRecorrencia(comando.dataHoraInicio, comando.recorrencia),
     };
   }
 
   criarReservas(params: ParametrosCriacaoReservas): Prisma.ReservaCreateManyInput[] {
-    // Reserva criada ja aprovada (coordenador no proprio escopo) registra o proprio coordenador como analisador.
     const autoAprovada = params.status === StatusReserva.APROVADA;
     return params.ocorrencias.map((ocorrencia) => ({
       salaId: params.comando.salaId,
@@ -56,4 +60,3 @@ export class ReservaFactory {
     }));
   }
 }
-
