@@ -1,0 +1,286 @@
+# Documentação da API — Reservas e Cancelamentos
+
+Esta documentação descreve os endpoints **efetivamente implementados** no backend (`Express 5 + Prisma 6.19 + MongoDB`) para consumo pelo frontend.
+
+---
+
+## 1. Convenções Gerais
+
+- **Base URL (desenvolvimento):** `http://localhost:3333`
+- **Formato de dados:** `application/json`
+- **Datas e Horários:**
+  - Campos de instante (`dataHoraInicio`, `dataHoraFim`, `criadoEm`, `aceitoPeloResponsavelEm`, `analisadoEm`, `canceladoEm`) utilizam **ISO 8601 com fuso horário** (ex.: `2026-10-21T13:00:00-03:00` ou `2026-10-21T16:00:00.000Z`).
+  - Datas civis (`dataFim` em recorrência e filtro `data`) utilizam o formato `AAAA-MM-DD`.
+  - O fuso horário institucional considerado para cálculo de dia civil, horário de funcionamento e `diaDaSemana` é **`America/Sao_Paulo`**.
+- **Identificadores (`id`, `salaId`, `responsavelId`, `solicitanteId`):**
+  - Strings hexadecimais de 24 caracteres (`MongoDB ObjectId`, ex.: `"64b7f0c2a1b2c3d4e5f60718"`).
+- **Pressuposto de Autenticação (área sob responsabilidade da equipe de autenticação):**
+  - Enquanto o middleware definitivo de JWT não é conectado, as rotas leem o cabeçalho HTTP:
+    ```http
+    x-usuario-id: <ObjectId do usuário autenticado>
+    ```
+  - Caso o cabeçalho esteja ausente, inválido ou o usuário esteja inativo, a API retorna `401 Unauthorized`.
+
+### Formato Padrão de Erro
+
+```json
+{
+  "erro": "VALIDACAO | NAO_AUTENTICADO | PERMISSAO_NEGADA | NAO_ENCONTRADO | CONFLITO | REGRA_DE_NEGOCIO | ERRO_INTERNO",
+  "mensagem": "Descrição legível do erro.",
+  "detalhes": {}
+}
+```
+
+### Enums Utilizados nas Respostas e Payloads
+
+- **`StatusReserva`** (mapeamento com o diagrama UML):
+  - `PENDENTE_APROVACAO` *(equivale a `EM_ANALISE` no diagrama)*
+  - `APROVADA` *(equivale a `AGENDADO` no diagrama)*
+  - `REJEITADA`
+  - `CANCELADA` *(equivale a `CANCELADO` no diagrama)*
+  - `CONCLUIDA` *(equivale a `CONCLUIDO` no diagrama)*
+- **`TipoRecorrencia` (`Frequencia`):** `SEMANAL`, `MENSAL`, `SEMESTRAL`, `ANUAL`
+- **`DiaSemana`:** `DOMINGO`, `SEGUNDA`, `TERCA`, `QUARTA`, `QUINTA`, `SEXTA`, `SABADO`
+
+---
+
+## 2. Fluxos de Negócio Resumidos
+
+1. **Solicitação e Aprovação:**
+   - **Professor / Coordenador:** a reserva já nasce com status `APROVADA` (`AGENDADO`), desde que não haja conflito de horário na sala.
+   - **Técnico:** solicita para si mesmo (`responsavelId` omitido ou igual ao próprio ID), com no mínimo **12h de antecedência**, respeitando o limite de **2 reservas a cada 12h e 2 por dia**. Nasce `PENDENTE_APROVACAO` e aguarda aprovação do Coordenador.
+   - **Aluno:** deve obrigatoriamente informar `responsavelId` (um Servidor: Professor, Técnico ou Coordenador), com no mínimo **12h de antecedência** e limite de **2 reservas a cada 12h e 2 por dia**.
+     - **Etapa 1:** o Servidor responsável aceita a reserva em `PATCH /reservas/:id/aceitar-responsabilidade` (ou `PATCH /reservas/:id/aprovar`), que registra `aceitoPeloResponsavelEm` e notifica o coordenador do departamento do responsável.
+     - **Etapa 2:** o Coordenador do prédio/setor aprova em `PATCH /reservas/:id/aprovar`, mudando o status para `APROVADA` (`AGENDADO`). *(Se o próprio Coordenador foi indicado como responsável pelo aluno, a aprovação direta em `/aprovar` cumpre ambas as etapas).*
+2. **Duração de Turno:**
+   - Toda reserva deve ter duração exata de **50 minutos** (`dataHoraFim - dataHoraInicio === 50 min`).
+3. **Recorrência (`ReservaCoordenador`):**
+   - Exclusiva para **Coordenador** no prédio/setor sob sua responsabilidade.
+   - Repete semanalmente o(s) dia(s) da semana e horário nos horizontes `MENSAL` (1 mês), `SEMESTRAL` (6 meses), `ANUAL` (12 meses) ou `SEMANAL` (até `dataFim`).
+4. **Cancelamento:**
+   - Só é permitido **antes do horário de início** (`agora < dataHoraInicio`).
+   - **Aluno / Técnico:** cancela somente a própria reserva (`solicitanteId === ator.id`).
+   - **Professor:** cancela diretamente a própria reserva (`solicitanteId === ator.id`). Quando aciona o cancelamento em uma **reserva de Aluno**, o sistema **não cancela imediatamente**: identifica o departamento do responsável, registra uma solicitação/notificação para o Coordenador (`202 Accepted`) e aguarda a decisão do Coordenador.
+   - **Coordenador:** pode cancelar qualquer reserva no seu escopo territorial antes do início.
+
+---
+
+## 3. Endpoints Implementados
+
+### 3.1. `GET /reservas`
+Lista reservas cadastradas, ordenadas por `dataHoraInicio` crescente, enriquecidas com o campo calculado `diaDaSemana`.
+
+- **Autenticação:** Obrigatória (`x-usuario-id`)
+- **Query Params (todos opcionais):**
+  - `salaId`: `ObjectId` da sala
+  - `status`: `PENDENTE_APROVACAO | APROVADA | REJEITADA | CANCELADA | CONCLUIDA`
+  - `solicitanteId`: `ObjectId` do solicitante
+  - `responsavelId`: `ObjectId` do responsável
+  - `data`: `AAAA-MM-DD` (filtra reservas com início nesse dia civil UTC)
+- **Resposta `200 OK`:**
+  ```json
+  [
+    {
+      "id": "64b7f0c2a1b2c3d4e5f60718",
+      "salaId": "64b7f0c2a1b2c3d4e5f60111",
+      "solicitanteId": "64b7f0c2a1b2c3d4e5f60222",
+      "responsavelId": "64b7f0c2a1b2c3d4e5f60333",
+      "analisadoPorId": null,
+      "serieRecorrenciaId": null,
+      "dataHoraInicio": "2026-10-21T13:00:00.000Z",
+      "dataHoraFim": "2026-10-21T13:50:00.000Z",
+      "finalidade": "Monitoria de Algoritmos",
+      "observacoes": "Necessário projetor",
+      "status": "PENDENTE_APROVACAO",
+      "motivoRejeicao": null,
+      "cancelamento": null,
+      "criadoEm": "2026-10-20T12:00:00.000Z",
+      "aceitoPeloResponsavelEm": null,
+      "analisadoEm": null,
+      "diaDaSemana": "QUARTA"
+    }
+  ]
+  ```
+
+---
+
+### 3.2. `GET /reservas/:id`
+Consulta os detalhes de uma reserva específica pelo seu ID, incluindo `diaDaSemana`.
+
+- **Autenticação:** Obrigatória (`x-usuario-id`)
+- **Parâmetros de Rota:** `id` (`ObjectId`)
+- **Respostas:**
+  - `200 OK`: Objeto da reserva (mesmo formato do item de `GET /reservas`).
+  - `400 Bad Request`: ID em formato inválido.
+  - `404 Not Found`: Reserva não encontrada.
+
+---
+
+### 3.3. `POST /reservas`
+Cria uma reserva única ou uma série de reservas recorrentes.
+
+- **Autenticação:** Obrigatória (`x-usuario-id`)
+- **Corpo JSON:**
+  ```json
+  {
+    "salaId": "64b7f0c2a1b2c3d4e5f60111",
+    "dataHoraInicio": "2026-10-21T10:00:00-03:00",
+    "dataHoraFim": "2026-10-21T10:50:00-03:00",
+    "finalidade": "Aula de Engenharia de Software",
+    "observacoes": "Turma do 4º período",
+    "responsavelId": "64b7f0c2a1b2c3d4e5f60333",
+    "recorrencia": {
+      "tipo": "SEMESTRAL",
+      "dataFim": "2027-03-21",
+      "diasSemana": ["QUARTA"]
+    }
+  }
+  ```
+  - **Campos obrigatórios:** `salaId`, `dataHoraInicio`, `dataHoraFim`, `finalidade`.
+  - **Campos condicionais/opcionais:**
+    - `observacoes` *(opcional)*: texto livre.
+    - `responsavelId`: **obrigatório para Aluno** (deve apontar para um Servidor/Coordenação ativo); opcional para Coordenador (permite delegar a outro Servidor); proibido ser diferente do próprio usuário para Professor e Técnico.
+    - `recorrencia` *(exclusivo para Coordenador)*:
+      - `tipo`: `SEMANAL | MENSAL | SEMESTRAL | ANUAL`.
+      - `dataFim`: `AAAA-MM-DD` (obrigatório em `SEMANAL`; opcional em `MENSAL`/`SEMESTRAL`/`ANUAL`, que assumem 1, 6 ou 12 meses a partir da data inicial).
+      - `diasSemana`: array de `DiaSemana` (obrigatório em `SEMANAL`; opcional em `MENSAL`/`SEMESTRAL`/`ANUAL`, que assumem o dia da semana de `dataHoraInicio` quando omitido).
+- **Resposta `201 Created`:**
+  ```json
+  {
+    "serieRecorrencia": null,
+    "reservas": [
+      {
+        "id": "64b7f0c2a1b2c3d4e5f60718",
+        "salaId": "64b7f0c2a1b2c3d4e5f60111",
+        "solicitanteId": "64b7f0c2a1b2c3d4e5f60222",
+        "responsavelId": "64b7f0c2a1b2c3d4e5f60333",
+        "analisadoPorId": null,
+        "serieRecorrenciaId": null,
+        "dataHoraInicio": "2026-10-21T13:00:00.000Z",
+        "dataHoraFim": "2026-10-21T13:50:00.000Z",
+        "finalidade": "Aula de Engenharia de Software",
+        "observacoes": "Turma do 4º período",
+        "status": "PENDENTE_APROVACAO",
+        "motivoRejeicao": null,
+        "cancelamento": null,
+        "criadoEm": "2026-10-20T12:00:00.000Z",
+        "aceitoPeloResponsavelEm": null,
+        "analisadoEm": null,
+        "diaDaSemana": "QUARTA"
+      }
+    ]
+  }
+  ```
+- **Erros possíveis:**
+  - `400 VALIDACAO`: campos ausentes ou formato inválido.
+  - `403 PERMISSAO_NEGADA`: aluno sem responsável; professor/técnico tentando delegar ou criar recorrência.
+  - `404 NAO_ENCONTRADO`: sala não encontrada.
+  - `409 CONFLITO`: sala já possui reserva `APROVADA` sobreposta no horário solicitado.
+  - `422 REGRA_DE_NEGOCIO`: duração diferente de 50 minutos; horário no passado ou fora da janela de funcionamento; menos de 12h de antecedência (Aluno/Técnico); mais de 2 reservas em 12h ou no mesmo dia (Aluno/Técnico); responsável indicado é Aluno, inexistente ou inativo; sala inativa.
+
+---
+
+### 3.4. `PATCH /reservas/:id/aceitar-responsabilidade`
+Permite que o Servidor indicado como `responsavel` por um Aluno aceite a responsabilidade pela reserva e a encaminhe (via notificação) ao Coordenador do seu departamento.
+
+- **Autenticação:** Obrigatória (`x-usuario-id` deve ser o `responsavelId` da reserva e ser Servidor).
+- **Parâmetros de Rota:** `id` (`ObjectId` da reserva).
+- **Corpo JSON:** Não exigido (vazio `{}`).
+- **Resposta `200 OK`:** Objeto da reserva atualizado com `aceitoPeloResponsavelEm` preenchido (status permanece `PENDENTE_APROVACAO` até a aprovação do Coordenador).
+- **Erros possíveis:** `403 PERMISSAO_NEGADA`, `404 NAO_ENCONTRADO`, `409 CONFLITO` (se não estiver `PENDENTE_APROVACAO` ou já tiver sido aceita).
+
+---
+
+### 3.5. `PATCH /reservas/:id/aprovar`
+Aprova uma reserva pendente (`PENDENTE_APROVACAO` $\rightarrow$ `APROVADA`).
+- Se chamado pelo **Coordenador** do prédio/setor da sala: aprova definitivamente a reserva (desde que, no caso de reserva de Aluno, o servidor responsável já tenha aceitado ou seja o próprio Coordenador).
+- Se chamado pelo **Servidor responsável** de uma reserva de Aluno (que não é coordenador da sala): executa automaticamente o aceite de responsabilidade (`aceitarResponsabilidade`).
+
+- **Autenticação:** Obrigatória (`x-usuario-id`)
+- **Parâmetros de Rota:** `id` (`ObjectId`)
+- **Resposta `200 OK`:** Objeto da reserva atualizado.
+- **Erros possíveis:**
+  - `403 PERMISSAO_NEGADA`: usuário não é coordenador da sala nem servidor responsável pela reserva.
+  - `409 CONFLITO`: reserva não está `PENDENTE_APROVACAO` ou há conflito de horário na sala.
+  - `422 REGRA_DE_NEGOCIO`: coordenador tentou aprovar reserva de aluno antes do aceite do servidor responsável.
+
+---
+
+### 3.6. `PATCH /reservas/:id/rejeitar`
+Rejeita uma reserva pendente (`PENDENTE_APROVACAO` $\rightarrow$ `REJEITADA`).
+
+- **Autenticação:** Obrigatória (`x-usuario-id` — Coordenador do prédio/setor da sala)
+- **Parâmetros de Rota:** `id` (`ObjectId`)
+- **Corpo JSON:**
+  ```json
+  {
+    "motivo": "Sala reservada para manutenção elétrica."
+  }
+  ```
+- **Resposta `200 OK`:** Objeto da reserva atualizado com `status: "REJEITADA"` e `motivoRejeicao`.
+
+---
+
+### 3.7. `PATCH /reservas/:id/cancelar` (e `POST | PATCH /cancelamentos/:id/cancelar`)
+Cancela uma reserva ou registra solicitação de cancelamento (quando um Professor solicita o cancelamento de uma reserva de Aluno para decisão do Coordenador). Ambos os caminhos utilizam o mesmo serviço central (`CancelamentoService`).
+
+- **Autenticação:** Obrigatória (`x-usuario-id`)
+- **Parâmetros de Rota:** `id` (`ObjectId`)
+- **Corpo JSON:**
+  ```json
+  {
+    "justificativa": "Imprevisto acadêmico / conflito de agenda."
+  }
+  ```
+- **Respostas:**
+  - **`200 OK` (Cancelamento efetivado — Aluno/Técnico/Professor na própria reserva, ou Coordenador):**
+    ```json
+    {
+      "reserva": {
+        "id": "64b7f0c2a1b2c3d4e5f60718",
+        "status": "CANCELADA",
+        "cancelamento": {
+          "canceladoPorId": "64b7f0c2a1b2c3d4e5f60222",
+          "justificativa": "Imprevisto acadêmico / conflito de agenda.",
+          "canceladoEm": "2026-10-20T14:00:00.000Z"
+        },
+        "diaDaSemana": "QUARTA"
+      },
+      "solicitacaoEnviada": false,
+      "mensagem": "Reserva cancelada com sucesso."
+    }
+    ```
+  - **`202 Accepted` (Solicitação enviada ao Coordenador — Professor solicitando cancelamento de reserva de Aluno):**
+    ```json
+    {
+      "reserva": null,
+      "solicitacaoEnviada": true,
+      "mensagem": "Solicitacao de cancelamento enviada ao coordenador do departamento para avaliacao."
+    }
+    ```
+- **Erros possíveis:**
+  - `400 VALIDACAO`: `justificativa` ausente ou vazia.
+  - `403 PERMISSAO_NEGADA`: usuário sem permissão sobre a reserva.
+  - `409 CONFLITO`: reserva já está `CANCELADA`, `REJEITADA` ou `CONCLUIDA`.
+  - `422 REGRA_DE_NEGOCIO`: tentativa de cancelar após `dataHoraInicio` já ter iniciado.
+
+---
+
+### 3.8. `GET /cancelamentos/solicitacoes`
+Lista as solicitações de cancelamento de reservas de alunos enviadas por professores e pendentes de avaliação pela coordenação.
+
+- **Autenticação:** Obrigatória (`x-usuario-id`)
+- **Resposta `200 OK`:**
+  ```json
+  [
+    {
+      "tipo": "SOLICITACAO_CANCELAMENTO",
+      "reservaId": "64b7f0c2a1b2c3d4e5f60718",
+      "solicitadoPorId": "64b7f0c2a1b2c3d4e5f60999",
+      "departamentoId": "64b7f0c2a1b2c3d4e5f60444",
+      "justificativa": "Conflito de horário com aula magna",
+      "criadoEm": "2026-10-20T14:00:00.000Z"
+    }
+  ]
+  ```
+

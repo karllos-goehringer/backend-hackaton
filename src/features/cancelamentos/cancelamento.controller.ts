@@ -7,6 +7,10 @@ import type { CancelamentoService } from "./cancelamento.service.js";
 export class CancelamentoController {
   constructor(private readonly service: CancelamentoService) {}
 
+  listarSolicitacoes = async (_request: Request, response: Response): Promise<void> => {
+    response.status(200).json(this.service.listarSolicitacoesPendentes());
+  };
+
   cancelar = async (request: Request, response: Response): Promise<void> => {
     const id = validarIdReserva(request.params.id);
     const justificativa = validarJustificativaCancelamento(request.body);

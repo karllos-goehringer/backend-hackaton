@@ -1,6 +1,8 @@
 import type { Router } from "express";
 import { prisma } from "../../shared/config/database.js";
 import { identificacaoProvisoria } from "../autenticacao/identificacao-provisoria.middleware.js";
+import { notificacoesService } from "../cancelamentos/cancelamento.module.js";
+import { CancelamentoService } from "../cancelamentos/cancelamento.service.js";
 import { EscopoCoordenacaoService } from "../coordenacao/escopo-coordenacao.service.js";
 import { LotacoesRepository } from "../coordenacao/lotacoes.repository.js";
 import { UsuariosRepository } from "../usuarios/usuarios.repository.js";
@@ -15,11 +17,17 @@ import { ReservasService } from "./reservas.service.js";
 /** Composition root da feature: monta as dependencias concretas (injecao manual, sem container). */
 export function criarModuloReservas(): Router {
   const escopo = new EscopoCoordenacaoService(new LotacoesRepository(prisma));
+  const cancelamentos = new CancelamentoService({
+    prisma,
+    notificacoes: notificacoesService,
+  });
   const service = new ReservasService({
     prisma,
     resolvedor: new ResolvedorPoliticaReserva(escopo),
     pipeline: criarPipelineValidacaoReserva(carregarJanelaFuncionamento()),
     factory: new ReservaFactory(),
+    notificacoes: notificacoesService,
+    cancelamentos,
   });
 
   return criarReservasRouter(
@@ -27,4 +35,3 @@ export function criarModuloReservas(): Router {
     identificacaoProvisoria(new UsuariosRepository(prisma)),
   );
 }
-

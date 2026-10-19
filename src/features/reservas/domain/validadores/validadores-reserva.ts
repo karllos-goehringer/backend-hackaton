@@ -112,7 +112,7 @@ export class ValidadorAntecedencia12Horas extends ValidadorReserva {
   }
 }
 
-/** Passo 2.6: Aluno e Tecnico podem ter no maximo 2 reservas no mesmo dia. */
+/** Passo 2.6 (por dia): Aluno e Tecnico podem ter no maximo 2 reservas agendadas para o mesmo dia civil. */
 export class ValidadorLimiteDiarioReservas extends ValidadorReserva {
   static readonly LIMITE_DIARIO = 2;
 
@@ -148,21 +148,28 @@ export class ValidadorResponsavelNaoAluno extends ValidadorReserva {
   }
 }
 
-/** Aluno: no maximo 1 reserva PENDENTE_APROVACAO criada nas ultimas 12 horas. */
+/**
+ * Passo 2.6 (janela de 12h, independente do dia marcado):
+ * Aluno e Tecnico podem solicitar no maximo 2 reservas ativas a cada janela movel de 12 horas.
+ */
 export class ValidadorQuota12HorasAluno extends ValidadorReserva {
   static readonly JANELA_MS = 12 * 60 * 60 * 1000;
+  static readonly LIMITE_JANELA_12H = 2;
 
-  protected async executar({ politica, ator, agora, reservas }: ContextoValidacaoReserva): Promise<void> {
+  protected async executar({ politica, ator, ocorrencias, agora, reservas }: ContextoValidacaoReserva): Promise<void> {
     if (!politica.exigeQuota12Horas) return;
 
     const desde = new Date(agora.getTime() - ValidadorQuota12HorasAluno.JANELA_MS);
-    const pendentes = await reservas.contarPorSolicitanteEStatusDesde(
-      ator.id,
-      StatusReserva.PENDENTE_APROVACAO,
-      desde,
-    );
-    if (pendentes > 0) {
-      throw new BusinessRuleError("Alunos podem ter apenas 1 reserva pendente a cada 12 horas.");
+    const criadasNaJanela =
+      typeof reservas.contarAtivasPorSolicitanteDesde === "function"
+        ? await reservas.contarAtivasPorSolicitanteDesde(ator.id, desde)
+        : await reservas.contarPorSolicitanteEStatusDesde(ator.id, StatusReserva.PENDENTE_APROVACAO, desde);
+
+    if (criadasNaJanela + ocorrencias.length > ValidadorQuota12HorasAluno.LIMITE_JANELA_12H) {
+      throw new BusinessRuleError(
+        `Alunos e tecnicos podem solicitar no maximo ${ValidadorQuota12HorasAluno.LIMITE_JANELA_12H} reservas a cada 12 horas.`,
+        { reservasNasUltimas12h: criadasNaJanela },
+      );
     }
   }
 }
@@ -212,4 +219,3 @@ export function criarPipelineValidacaoReserva(janela: JanelaFuncionamento | null
     .encadear(new ValidadorConflitoSala());
   return inicio;
 }
-
