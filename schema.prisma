@@ -1,0 +1,111 @@
+// Prisma 6.19 + MongoDB
+// Este e o schema FINAL: o que o `prisma db pull` gera + os ajustes manuais
+// (enums, relacoes, indices unicos). A partir daqui, o schema.prisma e a fonte da verdade:
+// use `prisma db push` para sincronizar o banco, nao rode `db pull` de novo.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+enum Perfil {
+  PROFESSOR
+  COORDENADOR
+}
+
+enum StatusReserva {
+  PENDENTE
+  APROVADA
+  REJEITADA
+  CANCELADA
+}
+
+enum TipoSala {
+  SALA_AULA
+  LABORATORIO
+  AUDITORIO
+  REUNIAO
+}
+
+// Professor e Coordenador na mesma colecao (heranca por discriminador `perfil`).
+model Usuario {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  nome            String
+  email           String   @unique
+  senhaHash       String
+  siape           String   @unique
+  perfil          Perfil
+  departamento    String
+  cursoCoordenado String? // preenchido apenas quando perfil = COORDENADOR
+  criadoEm        DateTime @default(now())
+
+  reservasSolicitadas Reserva[] @relation("Solicitante")
+  reservasAprovadas   Reserva[] @relation("Aprovador")
+}
+
+model Predio {
+  id       String   @id @default(auto()) @map("_id") @db.ObjectId
+  nome     String   @unique
+  endereco Endereco // embutido (composicao 1:1)
+  salas    Sala[]
+}
+
+// Composite type: documento embutido, sem colecao propria.
+// O pull gera este tipo como `PredioEndereco`; renomeie para `Endereco`.
+type Endereco {
+  rua    String
+  numero Int
+  bairro String
+  cep    String
+}
+
+model Sala {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  predioId   String   @db.ObjectId
+  numSala    Int
+  nomeSala   String
+  andar      Int
+  capacidade Int
+  tipo       TipoSala
+  ativa      Boolean  @default(true)
+
+  recursoIds String[] @db.ObjectId
+
+  predio   Predio    @relation(fields: [predioId], references: [id])
+  recursos Recurso[] @relation(fields: [recursoIds], references: [id])
+  reservas Reserva[]
+
+  @@unique([predioId, numSala])
+}
+
+model Recurso {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  descricao String   @unique
+  salaIds   String[] @db.ObjectId
+
+  salas Sala[] @relation(fields: [salaIds], references: [id])
+}
+
+model Reserva {
+  id            String        @id @default(auto()) @map("_id") @db.ObjectId
+  solicitanteId String        @db.ObjectId
+  salaId        String        @db.ObjectId
+  aprovadoPorId String?       @db.ObjectId
+  inicio        DateTime
+  fim           DateTime
+  finalidade    String
+  status        StatusReserva @default(PENDENTE)
+  criadoEm      DateTime      @default(now())
+  aprovadoEm    DateTime?
+
+  solicitante Usuario  @relation("Solicitante", fields: [solicitanteId], references: [id])
+  aprovador   Usuario? @relation("Aprovador", fields: [aprovadoPorId], references: [id])
+  sala        Sala     @relation(fields: [salaId], references: [id])
+
+  // Acelera a checagem de conflito de horario por sala.
+  @@index([salaId, inicio, fim])
+}
