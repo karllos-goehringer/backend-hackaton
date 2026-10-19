@@ -73,8 +73,8 @@ Use o host acessível pelo dispositivo/emulador no lugar de `10.0.2.2` e `wss://
    - **Professor / Coordenador:** a reserva já nasce com status `APROVADA` (`AGENDADO`), desde que não haja conflito de horário na sala.
    - **Técnico:** solicita para si mesmo (`responsavelId` omitido ou igual ao próprio ID), com no mínimo **12h de antecedência**, respeitando o limite de **2 reservas a cada 12h e 2 por dia**. Nasce `PENDENTE_APROVACAO` e aguarda aprovação do Coordenador.
    - **Aluno:** deve obrigatoriamente informar `responsavelId` (um Servidor: Professor, Técnico ou Coordenador), com no mínimo **12h de antecedência** e limite de **2 reservas a cada 12h e 2 por dia**.
-     - **Etapa 1:** o Servidor responsável aceita a reserva em `PATCH /reservas/:id/aceitar-responsabilidade` (ou `PATCH /reservas/:id/aprovar`), que registra `aceitoPeloResponsavelEm` e notifica o coordenador do departamento do responsável.
-     - **Etapa 2:** o Coordenador do prédio/setor aprova em `PATCH /reservas/:id/aprovar`, mudando o status para `APROVADA` (`AGENDADO`). *(Se o próprio Coordenador foi indicado como responsável pelo aluno, a aprovação direta em `/aprovar` cumpre ambas as etapas).*
+     - **Etapa 1:** o Servidor responsável aceita a reserva em `PATCH /reservas/:id/aceitar-responsabilidade` (ou `PATCH /reservas/:id/aprovar`, se não for coordenador da sala), que registra `aceitoPeloResponsavelEm` e notifica o coordenador do departamento do responsável.
+     - **Etapa 2:** após o aceite, o Coordenador do prédio/setor aprova em `PATCH /reservas/:id/aprovar`, mudando o status para `APROVADA` (`AGENDADO`). Se o responsável também for o coordenador da sala, deve confirmar as duas etapas separadamente: primeiro aceitar a responsabilidade e depois aprovar.
 2. **Duração de Turno:**
    - Toda reserva deve ter duração exata de **50 minutos** (`dataHoraFim - dataHoraInicio === 50 min`).
 3. **Recorrência (`ReservaCoordenador`):**
@@ -226,7 +226,7 @@ Cria uma reserva única ou uma série de reservas recorrentes.
 ---
 
 ### 3.5. `PATCH /reservas/:id/aceitar-responsabilidade`
-Permite que o Servidor indicado como `responsavel` por um Aluno aceite a responsabilidade pela reserva e a encaminhe (via notificação) ao Coordenador do seu departamento.
+Permite que o Servidor indicado como `responsavel` por um Aluno aceite a responsabilidade pela reserva e a encaminhe (via notificação) ao Coordenador do seu departamento. Esse aceite é obrigatório antes da aprovação final, mesmo quando o responsável também é o coordenador da sala; nesse caso, use esta rota primeiro e `PATCH /reservas/:id/aprovar` em seguida.
 
 - **Autenticação:** Obrigatória (`x-usuario-id` deve ser o `responsavelId` da reserva e ser Servidor).
 - **Parâmetros de Rota:** `id` (`ObjectId` da reserva).
@@ -238,7 +238,7 @@ Permite que o Servidor indicado como `responsavel` por um Aluno aceite a respons
 
 ### 3.6. `PATCH /reservas/:id/aprovar`
 Aprova uma reserva pendente (`PENDENTE_APROVACAO` $\rightarrow$ `APROVADA`).
-- Se chamado pelo **Coordenador** do prédio/setor da sala: aprova definitivamente a reserva (desde que, no caso de reserva de Aluno, o servidor responsável já tenha aceitado ou seja o próprio Coordenador).
+- Se chamado pelo **Coordenador** do prédio/setor da sala: aprova definitivamente a reserva, desde que o servidor responsável já tenha aceitado quando o solicitante for diferente do responsável.
 - Se chamado pelo **Servidor responsável** de uma reserva de Aluno (que não é coordenador da sala): executa automaticamente o aceite de responsabilidade (`aceitarResponsabilidade`).
 
 - **Autenticação:** Obrigatória (`x-usuario-id`)

@@ -175,15 +175,14 @@ export class ReservasService implements IReservavel {
       throw new ForbiddenError("Apenas o coordenador do predio/setor da sala pode aprovar ou rejeitar esta reserva.");
     }
 
-    // Regra do diagrama para reserva de aluno (solicitante != responsavel):
-    // exige aceite previo do servidor responsavel, exceto quando o proprio coordenador e o responsavel.
+    // Reservas delegadas precisam do aceite do responsavel antes da aprovacao do coordenador,
+    // inclusive quando o responsavel tambem exerce a coordenacao da sala.
     if (
       reserva.solicitanteId !== reserva.responsavelId &&
-      reserva.responsavelId !== ator.id &&
       !reserva.aceitoPeloResponsavelEm
     ) {
       throw new BusinessRuleError(
-        "A reserva de aluno precisa primeiro ser aceita pelo servidor responsavel antes da aprovacao final do coordenador.",
+        "A reserva precisa primeiro ser aceita pelo servidor responsavel antes da aprovacao final do coordenador.",
       );
     }
 
@@ -207,9 +206,6 @@ export class ReservasService implements IReservavel {
         status: novoStatus,
         analisadoPorId: ator.id,
         analisadoEm: agora,
-        ...(reserva.responsavelId === ator.id && !reserva.aceitoPeloResponsavelEm
-          ? { aceitoPeloResponsavelEm: agora }
-          : {}),
       });
       return this.recarregar(reservas, reserva.id);
     });
