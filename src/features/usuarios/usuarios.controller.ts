@@ -16,4 +16,8 @@ export class UsuariosController {
     const ator = obterAtor(request);
     response.json(await this.service.buscarMeuPerfil(ator.id));
   };
+
+  listarDepartamentosElegiveis = async (_request: Request, response: Response): Promise<void> => {
+    response.json(await this.service.listarDepartamentosElegiveis());
+  };
 }

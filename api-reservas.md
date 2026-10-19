@@ -73,8 +73,8 @@ Use o host acessível pelo dispositivo/emulador no lugar de `10.0.2.2` e `wss://
    - **Professor / Coordenador:** a reserva já nasce com status `APROVADA` (`AGENDADO`), desde que não haja conflito de horário na sala.
    - **Técnico:** solicita para si mesmo (`responsavelId` omitido ou igual ao próprio ID), com no mínimo **12h de antecedência**, respeitando o limite de **2 reservas a cada 12h e 2 por dia**. Nasce `PENDENTE_APROVACAO` e aguarda aprovação do Coordenador.
    - **Aluno:** deve obrigatoriamente informar `responsavelId` (um Servidor: Professor, Técnico ou Coordenador), com no mínimo **12h de antecedência** e limite de **2 reservas a cada 12h e 2 por dia**.
-     - **Etapa 1:** o Servidor responsável aceita a reserva em `PATCH /reservas/:id/aceitar-responsabilidade` (ou `PATCH /reservas/:id/aprovar`), que registra `aceitoPeloResponsavelEm` e notifica o coordenador do departamento do responsável.
-     - **Etapa 2:** o Coordenador do prédio/setor aprova em `PATCH /reservas/:id/aprovar`, mudando o status para `APROVADA` (`AGENDADO`). *(Se o próprio Coordenador foi indicado como responsável pelo aluno, a aprovação direta em `/aprovar` cumpre ambas as etapas).*
+     - **Etapa 1:** o Servidor responsável aceita a reserva em `PATCH /reservas/:id/aceitar-responsabilidade` (ou `PATCH /reservas/:id/aprovar`, se não for coordenador da sala), que registra `aceitoPeloResponsavelEm` e notifica o coordenador do departamento do responsável.
+     - **Etapa 2:** após o aceite, o Coordenador do prédio/setor aprova em `PATCH /reservas/:id/aprovar`, mudando o status para `APROVADA` (`AGENDADO`). Se o responsável também for o coordenador da sala, deve confirmar as duas etapas separadamente: primeiro aceitar a responsabilidade e depois aprovar.
 2. **Duração de Turno:**
    - Toda reserva deve ter duração exata de **50 minutos** (`dataHoraFim - dataHoraInicio === 50 min`).
 3. **Recorrência (`ReservaCoordenador`):**
@@ -90,7 +90,29 @@ Use o host acessível pelo dispositivo/emulador no lugar de `10.0.2.2` e `wss://
 
 ## 3. Endpoints Implementados
 
-### 3.1. `GET /reservas`
+### 3.1. `GET /usuarios/departamentos-elegiveis`
+Lista os departamentos em que um Coordenador pode atuar. O catálogo é mantido em um documento do MongoDB e sincronizado ao iniciar a API.
+
+- **Autenticação:** Não exigida (consulta usada no cadastro).
+- **Resposta `200 OK`:**
+  ```json
+  [
+    {
+      "id": "gabinete-diretoria-geral",
+      "nome": "Gabinete da Diretoria Geral",
+      "diretoria": "Diretoria Geral",
+      "sigla": "GABDG"
+    },
+    {
+      "id": "ensino-geral",
+      "nome": "Coordenadoria Geral de Ensino",
+      "diretoria": "Diretoria de Ensino"
+    }
+  ]
+  ```
+- Cada item contém um identificador estável (`id`), o nome do departamento, sua diretoria e, quando aplicável, a sigla.
+
+### 3.2. `GET /reservas`
 Lista reservas cadastradas, ordenadas por `dataHoraInicio` crescente, enriquecidas com o campo calculado `diaDaSemana`.
 
 - **Autenticação:** Obrigatória (`x-usuario-id`)
@@ -127,7 +149,7 @@ Lista reservas cadastradas, ordenadas por `dataHoraInicio` crescente, enriquecid
 
 ---
 
-### 3.2. `GET /reservas/:id`
+### 3.3. `GET /reservas/:id`
 Consulta os detalhes de uma reserva específica pelo seu ID, incluindo `diaDaSemana`.
 
 - **Autenticação:** Obrigatória (`x-usuario-id`)
@@ -139,7 +161,7 @@ Consulta os detalhes de uma reserva específica pelo seu ID, incluindo `diaDaSem
 
 ---
 
-### 3.3. `POST /reservas`
+### 3.4. `POST /reservas`
 Cria uma reserva única ou uma série de reservas recorrentes.
 
 - **Autenticação:** Obrigatória (`x-usuario-id`)
@@ -203,8 +225,8 @@ Cria uma reserva única ou uma série de reservas recorrentes.
 
 ---
 
-### 3.4. `PATCH /reservas/:id/aceitar-responsabilidade`
-Permite que o Servidor indicado como `responsavel` por um Aluno aceite a responsabilidade pela reserva e a encaminhe (via notificação) ao Coordenador do seu departamento.
+### 3.5. `PATCH /reservas/:id/aceitar-responsabilidade`
+Permite que o Servidor indicado como `responsavel` por um Aluno aceite a responsabilidade pela reserva e a encaminhe (via notificação) ao Coordenador do seu departamento. Esse aceite é obrigatório antes da aprovação final, mesmo quando o responsável também é o coordenador da sala; nesse caso, use esta rota primeiro e `PATCH /reservas/:id/aprovar` em seguida.
 
 - **Autenticação:** Obrigatória (`x-usuario-id` deve ser o `responsavelId` da reserva e ser Servidor).
 - **Parâmetros de Rota:** `id` (`ObjectId` da reserva).
@@ -214,9 +236,9 @@ Permite que o Servidor indicado como `responsavel` por um Aluno aceite a respons
 
 ---
 
-### 3.5. `PATCH /reservas/:id/aprovar`
+### 3.6. `PATCH /reservas/:id/aprovar`
 Aprova uma reserva pendente (`PENDENTE_APROVACAO` $\rightarrow$ `APROVADA`).
-- Se chamado pelo **Coordenador** do prédio/setor da sala: aprova definitivamente a reserva (desde que, no caso de reserva de Aluno, o servidor responsável já tenha aceitado ou seja o próprio Coordenador).
+- Se chamado pelo **Coordenador** do prédio/setor da sala: aprova definitivamente a reserva, desde que o servidor responsável já tenha aceitado quando o solicitante for diferente do responsável.
 - Se chamado pelo **Servidor responsável** de uma reserva de Aluno (que não é coordenador da sala): executa automaticamente o aceite de responsabilidade (`aceitarResponsabilidade`).
 
 - **Autenticação:** Obrigatória (`x-usuario-id`)
@@ -229,7 +251,7 @@ Aprova uma reserva pendente (`PENDENTE_APROVACAO` $\rightarrow$ `APROVADA`).
 
 ---
 
-### 3.6. `PATCH /reservas/:id/rejeitar`
+### 3.7. `PATCH /reservas/:id/rejeitar`
 Rejeita uma reserva pendente (`PENDENTE_APROVACAO` $\rightarrow$ `REJEITADA`).
 
 - **Autenticação:** Obrigatória (`x-usuario-id` — Coordenador do prédio/setor da sala)
@@ -244,7 +266,7 @@ Rejeita uma reserva pendente (`PENDENTE_APROVACAO` $\rightarrow$ `REJEITADA`).
 
 ---
 
-### 3.7. `PATCH /reservas/:id/cancelar` (e `POST | PATCH /cancelamentos/:id/cancelar`)
+### 3.8. `PATCH /reservas/:id/cancelar` (e `POST | PATCH /cancelamentos/:id/cancelar`)
 Cancela uma reserva ou registra solicitação de cancelamento (quando um Professor solicita o cancelamento de uma reserva de Aluno para decisão do Coordenador). Ambos os caminhos utilizam o mesmo serviço central (`CancelamentoService`).
 
 - **Autenticação:** Obrigatória (`x-usuario-id`)
@@ -289,7 +311,7 @@ Cancela uma reserva ou registra solicitação de cancelamento (quando um Profess
 
 ---
 
-### 3.8. `GET /cancelamentos/solicitacoes`
+### 3.9. `GET /cancelamentos/solicitacoes`
 Lista as solicitações de cancelamento de reservas de alunos enviadas por professores e pendentes de avaliação pela coordenação.
 
 - **Autenticação:** Obrigatória (`x-usuario-id`)
