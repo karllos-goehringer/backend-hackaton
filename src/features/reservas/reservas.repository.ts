@@ -26,9 +26,94 @@ export interface FiltrosListagemReservas {
   fim?: Date;
 }
 
+const RESERVA_COM_DETALHES = {
+  include: {
+    sala: {
+      select: {
+        id: true,
+        codigo: true,
+        numSala: true,
+        nomeSala: true,
+        andar: true,
+        capacidade: true,
+        tipo: true,
+        ativa: true,
+        predio: {
+          select: {
+            id: true,
+            nome: true,
+            endereco: true,
+            campus: { select: { id: true, nome: true, sigla: true } },
+            setor: { select: { id: true, nome: true, sigla: true } },
+          },
+        },
+        recursos: { select: { id: true, descricao: true } },
+      },
+    },
+    solicitante: {
+      select: {
+        id: true,
+        nome: true,
+        tipoCredencial: true,
+        curso: { select: { id: true, nome: true } },
+        departamento: { select: { id: true, nome: true } },
+      },
+    },
+    responsavel: {
+      select: {
+        id: true,
+        nome: true,
+        tipoCredencial: true,
+        curso: { select: { id: true, nome: true } },
+        departamento: { select: { id: true, nome: true } },
+      },
+    },
+    analisadoPor: {
+      select: { id: true, nome: true, tipoCredencial: true },
+    },
+    serieRecorrencia: {
+      select: {
+        id: true,
+        tipoRecorrencia: true,
+        dataInicio: true,
+        dataFim: true,
+        diasSemana: true,
+        criadoEm: true,
+      },
+    },
+  },
+} satisfies Prisma.ReservaDefaultArgs;
+
+export type ReservaDetalhada = Prisma.ReservaGetPayload<typeof RESERVA_COM_DETALHES>;
+
 /** Acesso a dados de reservas. Sem regras de negocio: apenas consultas e escritas parametrizadas. */
 export class ReservasRepository {
   constructor(private readonly db: DbClient) {}
+
+  buscarDetalhesPorId(id: string): Promise<ReservaDetalhada | null> {
+    return this.db.reserva.findUnique({ where: { id }, ...RESERVA_COM_DETALHES });
+  }
+
+  listarDetalhes(filtros: FiltrosListagemReservas = {}): Promise<ReservaDetalhada[]> {
+    return this.db.reserva.findMany({
+      ...RESERVA_COM_DETALHES,
+      where: {
+        ...(filtros.salaId ? { salaId: filtros.salaId } : {}),
+        ...(filtros.status ? { status: filtros.status } : {}),
+        ...(filtros.solicitanteId ? { solicitanteId: filtros.solicitanteId } : {}),
+        ...(filtros.responsavelId ? { responsavelId: filtros.responsavelId } : {}),
+        ...(filtros.inicio || filtros.fim
+          ? {
+              dataHoraInicio: {
+                ...(filtros.inicio ? { gte: filtros.inicio } : {}),
+                ...(filtros.fim ? { lt: filtros.fim } : {}),
+              },
+            }
+          : {}),
+      },
+      orderBy: { dataHoraInicio: "asc" },
+    });
+  }
 
   buscarPorId(id: string): Promise<Reserva | null> {
     return this.db.reserva.findUnique({ where: { id } });

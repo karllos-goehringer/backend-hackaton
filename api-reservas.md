@@ -119,7 +119,7 @@ Retorna o perfil do usuário autenticado. Docentes com ao menos uma lotação de
 - **Resposta `200 OK`:** perfil com dados pessoais básicos e os dados de aluno, servidor ou coordenações aplicáveis.
 
 ### 3.3. `GET /reservas`
-Lista reservas cadastradas, ordenadas por `dataHoraInicio` crescente, enriquecidas com o campo calculado `diaDaSemana`.
+Lista reservas cadastradas, ordenadas por `dataHoraInicio` crescente, enriquecidas com o campo calculado `diaDaSemana` e objetos relacionados. Os IDs escalares existentes são mantidos; `sala`, `solicitante`, `responsavel`, `analisadoPor` e `serieRecorrencia` trazem os respectivos detalhes seguros para exibição. A sala inclui prédio, campus, setor e recursos. Usuários relacionados não incluem credenciais nem dados de autenticação.
 
 - **Autenticação:** Obrigatória (`x-usuario-id`)
 - **Query Params (todos opcionais):**
@@ -149,7 +149,46 @@ Lista reservas cadastradas, ordenadas por `dataHoraInicio` crescente, enriquecid
       "criadoEm": "2026-10-20T12:00:00.000Z",
       "aceitoPeloResponsavelEm": null,
       "analisadoEm": null,
-      "diaDaSemana": "QUARTA"
+      "diaDaSemana": "QUARTA",
+      "sala": {
+        "id": "64b7f0c2a1b2c3d4e5f60111",
+        "codigo": "B1-S04",
+        "numSala": 4,
+        "nomeSala": "Laboratório de Informática",
+        "andar": 1,
+        "capacidade": 30,
+        "tipo": "LABORATORIO",
+        "ativa": true,
+        "predio": {
+          "id": "64b7f0c2a1b2c3d4e5f60112",
+          "nome": "Bloco 1",
+          "endereco": {
+            "rua": "Avenida Principal",
+            "numero": 100,
+            "bairro": "Centro",
+            "cep": "00000-000"
+          },
+          "campus": { "id": "64b7f0c2a1b2c3d4e5f60113", "nome": "Campus Alegre", "sigla": "ALEGRE" },
+          "setor": { "id": "64b7f0c2a1b2c3d4e5f60114", "nome": "Setor Acadêmico", "sigla": "SA" }
+        },
+        "recursos": [{ "id": "64b7f0c2a1b2c3d4e5f60115", "descricao": "Projetor" }]
+      },
+      "solicitante": {
+        "id": "64b7f0c2a1b2c3d4e5f60222",
+        "nome": "Ana Silva",
+        "tipoCredencial": "MATRICULA_ALUNO",
+        "curso": { "id": "64b7f0c2a1b2c3d4e5f60223", "nome": "Sistemas para Internet" },
+        "departamento": null
+      },
+      "responsavel": {
+        "id": "64b7f0c2a1b2c3d4e5f60333",
+        "nome": "João Souza",
+        "tipoCredencial": "SIAPE_DOCENTE",
+        "curso": null,
+        "departamento": { "id": "64b7f0c2a1b2c3d4e5f60334", "nome": "Tecnologia da Informação" }
+      },
+      "analisadoPor": null,
+      "serieRecorrencia": null
     }
   ]
   ```

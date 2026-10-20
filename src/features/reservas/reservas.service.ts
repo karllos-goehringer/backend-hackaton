@@ -17,6 +17,7 @@ import {
   ReservasRepository,
   type FiltrosListagemReservas,
   type ReservaComLocalizacao,
+  type ReservaDetalhada,
 } from "./reservas.repository.js";
 
 export interface ResultadoCriacaoReserva {
@@ -64,13 +65,13 @@ export class ReservasService implements IReservavel {
       });
   }
 
-  async listar(filtros: FiltrosListagemReservas = {}): Promise<ComDiaDaSemana<Reserva>[]> {
-    const reservas = await new ReservasRepository(this.prisma).listar(filtros);
+  async listar(filtros: FiltrosListagemReservas = {}): Promise<ComDiaDaSemana<ReservaDetalhada>[]> {
+    const reservas = await new ReservasRepository(this.prisma).listarDetalhes(filtros);
     return reservas.map(anexarDiaDaSemana);
   }
 
-  async buscarPorId(reservaId: string): Promise<ComDiaDaSemana<Reserva>> {
-    const reserva = await new ReservasRepository(this.prisma).buscarPorId(reservaId);
+  async buscarPorId(reservaId: string): Promise<ComDiaDaSemana<ReservaDetalhada>> {
+    const reserva = await new ReservasRepository(this.prisma).buscarDetalhesPorId(reservaId);
     if (!reserva) throw new NotFoundError("Reserva nao encontrada.");
     return anexarDiaDaSemana(reserva);
   }
