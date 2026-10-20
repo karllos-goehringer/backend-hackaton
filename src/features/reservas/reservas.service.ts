@@ -82,7 +82,7 @@ export class ReservasService implements IReservavel {
     if (!sala) throw new NotFoundError("Sala nao encontrada.");
     if (!sala.ativa) throw new BusinessRuleError("A sala esta inativa e nao aceita reservas.");
 
-    const politica = await this.resolvedor.resolver(ator, sala, agora);
+    const politica = await this.resolvedor.resolver(ator, sala);
     const responsavelId = comando.responsavelId ?? ator.id;
     politica.validarCriacao({ recorrente: comando.recorrencia !== undefined, delegada: responsavelId !== ator.id });
 
@@ -160,7 +160,7 @@ export class ReservasService implements IReservavel {
   async aprovar(ator: AtorReserva, reservaId: string): Promise<ComDiaDaSemana<Reserva>> {
     const agora = this.relogio();
     const reserva = await this.carregar(reservaId);
-    const politica = await this.resolvedor.resolver(ator, reserva, agora);
+    const politica = await this.resolvedor.resolver(ator, reserva);
 
     // Se o ator nao for o coordenador da sala, mas for o servidor responsavel pela reserva de aluno,
     // executa o aceite do responsavel e encaminha ao coordenador.
@@ -268,7 +268,7 @@ export class ReservasService implements IReservavel {
     agora: Date,
   ): Promise<ReservaComLocalizacao> {
     const reserva = await this.carregar(reservaId);
-    const politica = await this.resolvedor.resolver(ator, reserva, agora);
+    const politica = await this.resolvedor.resolver(ator, reserva);
     if (!politica.podeAprovarOuRejeitar()) {
       throw new ForbiddenError("Apenas o coordenador do predio/setor da sala pode aprovar ou rejeitar esta reserva.");
     }

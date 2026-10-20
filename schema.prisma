@@ -186,17 +186,15 @@ model Credencial {
   @@index([usuarioId])
 }
 
-// Vinculo temporario (portaria) de um docente como coordenador de um Predio e, opcionalmente, de um Setor.
-// Datas de portaria sao datas civis armazenadas a 00:00 UTC.
+// Vinculo ativo de um docente como coordenador de um Predio e, opcionalmente, de um Setor.
+// A funcao termina quando `ativo` e desativado; nao ha expiracao por data.
 model LotacaoCoordenacao {
-  id             String    @id @default(auto()) @map("_id") @db.ObjectId
-  docenteId      String    @db.ObjectId
-  predioId       String    @db.ObjectId
-  setorId        String?   @db.ObjectId
+  id             String  @id @default(auto()) @map("_id") @db.ObjectId
+  docenteId      String  @db.ObjectId
+  predioId       String  @db.ObjectId
+  setorId        String? @db.ObjectId
   numeroPortaria String
-  dataInicio     DateTime
-  dataFim        DateTime?
-  ativo          Boolean   @default(true)
+  ativo          Boolean @default(true)
 
   docente Usuario @relation(fields: [docenteId], references: [id], onDelete: Restrict)
   predio  Predio  @relation(fields: [predioId], references: [id], onDelete: Restrict)
@@ -282,18 +280,18 @@ model SerieRecorrencia {
 }
 
 model Reserva {
-  id                 String        @id @default(auto()) @map("_id") @db.ObjectId
-  salaId             String        @db.ObjectId
-  solicitanteId      String        @db.ObjectId
-  responsavelId      String        @db.ObjectId
-  analisadoPorId     String?       @db.ObjectId
-  serieRecorrenciaId String?       @db.ObjectId
+  id                 String          @id @default(auto()) @map("_id") @db.ObjectId
+  salaId             String          @db.ObjectId
+  solicitanteId      String          @db.ObjectId
+  responsavelId      String          @db.ObjectId
+  analisadoPorId     String?         @db.ObjectId
+  serieRecorrenciaId String?         @db.ObjectId
   tipoRecorrencia    TipoRecorrencia @default(UNICA)
   dataHoraInicio     DateTime
   dataHoraFim        DateTime
   finalidade         String
   observacoes        String?
-  status             StatusReserva @default(PENDENTE_APROVACAO)
+  status             StatusReserva   @default(PENDENTE_APROVACAO)
   motivoRejeicao     String?
   cancelamento       Cancelamento?
   criadoEm                DateTime      @default(now())

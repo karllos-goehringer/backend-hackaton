@@ -46,8 +46,6 @@ export interface PerfilUsuario {
     predioId: string;
     setorId: string | null;
     numeroPortaria: string;
-    dataInicio: Date;
-    dataFim: Date | null;
     ativo: boolean;
   }>;
 }
@@ -98,15 +96,9 @@ export class UsuariosRepository {
     await this.db.credencial.create({ data: dados });
   }
 
-  async possuiLotacaoAtiva(docenteId: string, agora: Date): Promise<boolean> {
-    const hoje = new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), agora.getUTCDate()));
+  async possuiLotacaoAtiva(docenteId: string): Promise<boolean> {
     const lotacao = await this.db.lotacaoCoordenacao.findFirst({
-      where: {
-        docenteId,
-        ativo: true,
-        dataInicio: { lte: hoje },
-        OR: [{ dataFim: null }, { dataFim: { gte: hoje } }],
-      },
+      where: { docenteId, ativo: true },
       select: { id: true },
     });
     return lotacao !== null;
@@ -161,11 +153,8 @@ export class UsuariosRepository {
             predioId: true,
             setorId: true,
             numeroPortaria: true,
-            dataInicio: true,
-            dataFim: true,
             ativo: true,
           },
-          orderBy: { dataInicio: "desc" },
         },
       },
     });
@@ -183,4 +172,3 @@ export class UsuariosRepository {
     });
   }
 }
-

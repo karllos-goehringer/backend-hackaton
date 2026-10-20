@@ -112,7 +112,13 @@ Lista os departamentos em que um Coordenador pode atuar. O catálogo é mantido 
   ```
 - Cada item contém um identificador estável (`id`), o nome do departamento, sua diretoria e, quando aplicável, a sigla.
 
-### 3.2. `GET /reservas`
+### 3.2. `GET /usuarios/me`
+Retorna o perfil do usuário autenticado. Docentes com ao menos uma lotação de coordenação ativa recebem `nivelAcesso: 2` (`COORDENADOR`) e suas lotações ativas em `coordenacoes`. A coordenação não expira por data: para encerrar o papel, a lotação deve ser desativada (`ativo: false`).
+
+- **Autenticação:** Obrigatória (`Authorization: Bearer <token>`).
+- **Resposta `200 OK`:** perfil com dados pessoais básicos e os dados de aluno, servidor ou coordenações aplicáveis.
+
+### 3.3. `GET /reservas`
 Lista reservas cadastradas, ordenadas por `dataHoraInicio` crescente, enriquecidas com o campo calculado `diaDaSemana`.
 
 - **Autenticação:** Obrigatória (`x-usuario-id`)
@@ -150,7 +156,7 @@ Lista reservas cadastradas, ordenadas por `dataHoraInicio` crescente, enriquecid
 
 ---
 
-### 3.3. `GET /reservas/:id`
+### 3.4. `GET /reservas/:id`
 Consulta os detalhes de uma reserva específica pelo seu ID, incluindo `diaDaSemana`.
 
 - **Autenticação:** Obrigatória (`x-usuario-id`)
@@ -162,7 +168,7 @@ Consulta os detalhes de uma reserva específica pelo seu ID, incluindo `diaDaSem
 
 ---
 
-### 3.4. `POST /reservas`
+### 3.5. `POST /reservas`
 Cria uma reserva única ou uma série de reservas recorrentes.
 
 - **Autenticação:** Obrigatória (`x-usuario-id`)
@@ -228,7 +234,7 @@ Cria uma reserva única ou uma série de reservas recorrentes.
 
 ---
 
-### 3.5. `PATCH /reservas/:id/aceitar-responsabilidade`
+### 3.6. `PATCH /reservas/:id/aceitar-responsabilidade`
 Permite que o Servidor indicado como `responsavel` por um Aluno aceite a responsabilidade pela reserva e a encaminhe (via notificação) ao Coordenador do seu departamento. Esse aceite é obrigatório antes da aprovação final, mesmo quando o responsável também é o coordenador da sala; nesse caso, use esta rota primeiro e `PATCH /reservas/:id/aprovar` em seguida.
 
 - **Autenticação:** Obrigatória (`x-usuario-id` deve ser o `responsavelId` da reserva e ser Servidor).
@@ -239,7 +245,7 @@ Permite que o Servidor indicado como `responsavel` por um Aluno aceite a respons
 
 ---
 
-### 3.6. `PATCH /reservas/:id/aprovar`
+### 3.7. `PATCH /reservas/:id/aprovar`
 Aprova uma reserva pendente (`PENDENTE_APROVACAO` $\rightarrow$ `APROVADA`).
 - Se chamado pelo **Coordenador** do prédio/setor da sala: aprova definitivamente a reserva, desde que o servidor responsável já tenha aceitado quando o solicitante for diferente do responsável.
 - Se chamado pelo **Servidor responsável** de uma reserva de Aluno (que não é coordenador da sala): executa automaticamente o aceite de responsabilidade (`aceitarResponsabilidade`).
@@ -254,7 +260,7 @@ Aprova uma reserva pendente (`PENDENTE_APROVACAO` $\rightarrow$ `APROVADA`).
 
 ---
 
-### 3.7. `PATCH /reservas/:id/rejeitar`
+### 3.8. `PATCH /reservas/:id/rejeitar`
 Rejeita uma reserva pendente (`PENDENTE_APROVACAO` $\rightarrow$ `REJEITADA`).
 
 - **Autenticação:** Obrigatória (`x-usuario-id` — Coordenador do prédio/setor da sala)
@@ -269,7 +275,7 @@ Rejeita uma reserva pendente (`PENDENTE_APROVACAO` $\rightarrow$ `REJEITADA`).
 
 ---
 
-### 3.8. `PATCH /reservas/:id/cancelar` (e `POST | PATCH /cancelamentos/:id/cancelar`)
+### 3.9. `PATCH /reservas/:id/cancelar` (e `POST | PATCH /cancelamentos/:id/cancelar`)
 Cancela uma reserva ou registra solicitação de cancelamento (quando um Professor solicita o cancelamento de uma reserva de Aluno para decisão do Coordenador). Ambos os caminhos utilizam o mesmo serviço central (`CancelamentoService`).
 
 - **Autenticação:** Obrigatória (`x-usuario-id`)
@@ -314,7 +320,7 @@ Cancela uma reserva ou registra solicitação de cancelamento (quando um Profess
 
 ---
 
-### 3.9. `GET /cancelamentos/solicitacoes`
+### 3.10. `GET /cancelamentos/solicitacoes`
 Lista as solicitações de cancelamento de reservas de alunos enviadas por professores e pendentes de avaliação pela coordenação.
 
 - **Autenticação:** Obrigatória (`x-usuario-id`)

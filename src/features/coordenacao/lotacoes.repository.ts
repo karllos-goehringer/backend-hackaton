@@ -8,8 +8,7 @@ export class LotacoesRepository {
   listarPorDocente(docenteId: string): Promise<LotacaoCoordenacaoDados[]> {
     return this.db.lotacaoCoordenacao.findMany({
       where: { docenteId },
-      select: { predioId: true, setorId: true, dataInicio: true, dataFim: true, ativo: true },
+      select: { predioId: true, setorId: true, ativo: true },
     });
   }
 }
-

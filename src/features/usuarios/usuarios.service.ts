@@ -76,7 +76,7 @@ export class UsuariosService {
         return criado;
       });
       const nivelAcesso = usuario.tipoCredencial === TipoCredencial.SIAPE_DOCENTE &&
-        await new UsuariosRepository(this.prisma).possuiLotacaoAtiva(usuario.id, new Date())
+        await new UsuariosRepository(this.prisma).possuiLotacaoAtiva(usuario.id)
         ? NivelAcesso.COORDENADOR
         : nivelParaTipo(usuario.tipoCredencial);
       return { uuid: usuario.id, nivelAcesso };
@@ -115,7 +115,7 @@ export class UsuariosService {
     let nivelAcesso = nivelParaTipo(credencial.usuario.tipoCredencial);
     if (
       credencial.usuario.tipoCredencial === TipoCredencial.SIAPE_DOCENTE &&
-      await new UsuariosRepository(this.prisma).possuiLotacaoAtiva(credencial.usuario.id, new Date())
+      await new UsuariosRepository(this.prisma).possuiLotacaoAtiva(credencial.usuario.id)
     ) {
       nivelAcesso = NivelAcesso.COORDENADOR;
     }
@@ -139,13 +139,8 @@ export class UsuariosService {
     const perfil = await usuarios.buscarPerfilCompleto(uuid);
     if (!perfil || !perfil.ativo) throw new NotFoundError("Perfil de usuario nao encontrado.");
 
-    const hoje = new Date();
-    const lotacoesVigentes = perfil.lotacoesCoordenacao.filter((lotacao) =>
-      lotacao.ativo &&
-      lotacao.dataInicio.getTime() <= hoje.getTime() &&
-      (lotacao.dataFim === null || lotacao.dataFim.getTime() >= hoje.getTime()),
-    );
-    const nivelAcesso = perfil.tipoCredencial === TipoCredencial.SIAPE_DOCENTE && lotacoesVigentes.length > 0
+    const lotacoesAtivas = perfil.lotacoesCoordenacao.filter((lotacao) => lotacao.ativo);
+    const nivelAcesso = perfil.tipoCredencial === TipoCredencial.SIAPE_DOCENTE && lotacoesAtivas.length > 0
       ? NivelAcesso.COORDENADOR
       : nivelParaTipo(perfil.tipoCredencial);
 
@@ -164,7 +159,7 @@ export class UsuariosService {
       servidor: perfil.departamento
         ? { siape: perfil.codigoLogin, departamento: perfil.departamento }
         : null,
-      coordenacoes: lotacoesVigentes,
+      coordenacoes: lotacoesAtivas,
     };
   }
 

@@ -18,8 +18,8 @@ export interface AtorReserva {
  * Contexto do Strategy + Role Object: escolhe a politica conforme o papel ativo do ator sobre a sala.
  * - Aluno (MATRICULA_ALUNO)                          -> PoliticaAlunoStrategy
  * - Tecnico (SIAPE_TECNICO)                          -> PoliticaTecnicoStrategy
- * - Docente com lotacao vigente no Predio/Setor      -> PoliticaCoordenadorStrategy
- * - Docente sem lotacao vigente sobre a sala         -> PoliticaProfessorStrategy
+ * - Docente com lotacao ativa no Predio/Setor        -> PoliticaCoordenadorStrategy
+ * - Docente sem lotacao ativa sobre a sala           -> PoliticaProfessorStrategy
  */
 export class ResolvedorPoliticaReserva {
   private readonly aluno = new PoliticaAlunoStrategy();
@@ -29,11 +29,10 @@ export class ResolvedorPoliticaReserva {
 
   constructor(private readonly escopo: EscopoCoordenacaoService) {}
 
-  async resolver(ator: AtorReserva, sala: LocalizacaoSala, agora: Date): Promise<PoliticaReservaStrategy> {
+  async resolver(ator: AtorReserva, sala: LocalizacaoSala): Promise<PoliticaReservaStrategy> {
     if (ator.tipoCredencial === TipoCredencial.MATRICULA_ALUNO) return this.aluno;
     if (ator.tipoCredencial === TipoCredencial.SIAPE_TECNICO) return this.tecnico;
-    const coordena = await this.escopo.coordenaSala(ator.id, sala, agora);
+    const coordena = await this.escopo.coordenaSala(ator.id, sala);
     return coordena ? this.coordenador : this.professor;
   }
 }
-

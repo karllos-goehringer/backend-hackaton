@@ -3,7 +3,7 @@
  *
  * Convencoes:
  * - Instantes (dataHoraInicio/Fim) sao `Date` em UTC.
- * - Datas civis (portarias, inicio/fim de serie) sao `Date` a 00:00 UTC do dia civil.
+ * - Datas civis (inicio/fim de serie) sao `Date` a 00:00 UTC do dia civil.
  */
 export const FUSO_INSTITUCIONAL = "America/Sao_Paulo";
 
@@ -86,4 +86,3 @@ export function dataCivil(instante: Date, fuso = FUSO_INSTITUCIONAL): Date {
 export function diasNoMes(ano: number, mes: number): number {
   return new Date(Date.UTC(ano, mes, 0)).getUTCDate();
 }
-

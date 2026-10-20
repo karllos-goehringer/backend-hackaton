@@ -69,7 +69,7 @@ export class CancelamentoService implements ICancelavel {
 
     const escopo = new EscopoCoordenacaoService(new LotacoesRepository(this.prisma));
     const resolvedor = new ResolvedorPoliticaReserva(escopo);
-    const politica = await resolvedor.resolver(ator, reserva, agora);
+    const politica = await resolvedor.resolver(ator, reserva);
     const nivel = politica.nivel;
 
     // 1. Aluno: pode cancelar apenas a propria reserva (solicitanteId === ator.id) antes do inicio
