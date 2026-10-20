@@ -2,25 +2,66 @@
 // Este e o schema FINAL: o que o `prisma db pull` gera + os ajustes manuais
 // (enums, relacoes, indices unicos). A partir daqui, o schema.prisma e a fonte da verdade:
 // use `prisma db push` para sincronizar o banco, nao rode `db pull` de novo.
+//
+// Modelo refatorado conforme docs/arquitetura_reserva_salas_ifes.md, adaptado ao MongoDB:
+// - Joined Subclass (usuarios/alunos/docentes) -> colecao unica `Usuario` discriminada por `tipoCredencial`.
+// - `matricula`/`siape` unicos -> `codigoLogin @unique` (sempre preenchido). Evita @unique em campo
+//   opcional, que no MongoDB gera indice nao esparso e colide entre documentos com null.
+// - Tabela `cancelamentos` (1:1) -> composite type `Cancelamento` embutido na `Reserva` (escrita atomica).
+// - `EXCLUDE USING gist` (PostgreSQL) -> transacao + escrita em `Sala.versaoAgenda` (ver reservas.service.ts).
+// - Indices parciais nao sao suportados pelo Prisma no MongoDB -> indices compostos comuns.
+// - Integridade referencial e emulada pelo Prisma Client (onDelete) no MongoDB.
 
 generator client {
   provider = "prisma-client-js"
 }
 
+// `url` e obrigatoria no Prisma 6.x. DATABASE_URL e montada por configureDatabaseUrl()
+// (src/shared/config/database-url.ts) antes de qualquer uso do Prisma CLI/Client.
 datasource db {
   provider = "mongodb"
+  url      = env("DATABASE_URL")
 }
 
-enum Perfil {
-  PROFESSOR
-  COORDENADOR
+enum TipoCredencial {
+  MATRICULA_ALUNO
+  SIAPE_DOCENTE
+  SIAPE_TECNICO
 }
 
+enum TipoEntradaCredencial {
+  LOCAL
+  CORPORATIVA
+  OAUTH
+}
+
+// Reserva agendada diretamente por Professor/Tecnico/Coordenador usa `AGENDADO` (nao requer aprovacao);
+// Reserva solicitada por Aluno inicia em `PENDENTE_APROVACAO` e transiciona para `APROVADA` no aceite do responsavel.
 enum StatusReserva {
-  PENDENTE
+  PENDENTE_APROVACAO
   APROVADA
+  AGENDADO
   REJEITADA
   CANCELADA
+  CONCLUIDA
+}
+
+enum TipoRecorrencia {
+  UNICA
+  SEMANAL
+  MENSAL
+  SEMESTRAL
+  ANUAL
+}
+
+enum DiaSemana {
+  DOMINGO
+  SEGUNDA
+  TERCA
+  QUARTA
+  QUINTA
+  SEXTA
+  SABADO
 }
 
 enum TipoSala {
@@ -30,27 +71,113 @@ enum TipoSala {
   REUNIAO
 }
 
-// Professor e Coordenador na mesma colecao (heranca por discriminador `perfil`).
-model Usuario {
-  id              String   @id @default(auto()) @map("_id") @db.ObjectId
-  nome            String
-  email           String   @unique
-  senhaHash       String
-  siape           String   @unique
-  perfil          Perfil
-  departamento    String
-  cursoCoordenado String? // preenchido apenas quando perfil = COORDENADOR
-  criadoEm        DateTime @default(now())
+model Campus {
+  id    String @id @default(auto()) @map("_id") @db.ObjectId
+  nome  String
+  sigla String @unique
 
-  reservasSolicitadas Reserva[] @relation("Solicitante")
-  reservasAprovadas   Reserva[] @relation("Aprovador")
+  predios Predio[]
 }
 
+model Departamento {
+  id   String @id @default(auto()) @map("_id") @db.ObjectId
+  nome String @unique
+
+  docentes Usuario[]
+}
+
+model CatalogoDepartamentosCoordenacao {
+  id            String                         @id @map("_id")
+  departamentos DepartamentoElegivelCatalogo[]
+
+  @@map("catalogo_departamentos_coordenacao")
+}
+
+type DepartamentoElegivelCatalogo {
+  id        String
+  nome      String
+  diretoria String
+  sigla     String?
+}
+
+// Aluno e Servidor na mesma colecao (discriminador `tipoCredencial`).
+// O papel de Coordenador e persistido em `nivelAcesso = 4` e/ou derivado das lotacoes vigentes (Role Object).
+model Usuario {
+  id                 String         @id @default(auto()) @map("_id") @db.ObjectId
+  nome               String
+  emailInstitucional String?
+  telefone           String?
+  codigoLogin        String         @unique // Matricula (aluno) ou SIAPE (servidor), normalizado
+  tipoCredencial     TipoCredencial
+  // Nivel de acesso: 1 aluno, 2 tecnico, 3 professor, 4 coordenador.
+  nivelAcesso        Int            @default(1)
+  ativo              Boolean        @default(true)
+  criadoEm           DateTime       @default(now())
+
+  // Campo opcional de Servidor (tipoCredencial = SIAPE_DOCENTE | SIAPE_TECNICO)
+  departamentoId String? @db.ObjectId
+
+  // Campo tecnico: incrementado na transacao de criacao de reserva de aluno para
+  // serializar pedidos concorrentes do mesmo aluno (quota de 12 horas).
+  versaoSolicitacoes Int @default(0)
+
+  credenciais Credencial[]
+
+  departamento Departamento? @relation(fields: [departamentoId], references: [id])
+
+  lotacoesCoordenacao LotacaoCoordenacao[]
+  seriesCriadas       SerieRecorrencia[]
+  reservasSolicitadas Reserva[]            @relation("Solicitante")
+  reservasResponsavel Reserva[]            @relation("Responsavel")
+  reservasAnalisadas  Reserva[]            @relation("Analisador")
+
+  @@index([departamentoId])
+}
+
+model Credencial {
+  id          String                @id @default(auto()) @map("_id") @db.ObjectId
+  usuarioId   String                @db.ObjectId
+  tipoEntrada TipoEntradaCredencial
+  entrada     String                @unique
+  senhaHash   String
+  criadoEm    DateTime              @default(now())
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@unique([usuarioId, tipoEntrada])
+  @@index([usuarioId])
+}
+
+// Vinculo ativo de um docente como coordenador de um Predio.
+// A funcao termina quando `ativo` e desativado; nao ha expiracao por data.
+model LotacaoCoordenacao {
+  id             String  @id @default(auto()) @map("_id") @db.ObjectId
+  docenteId      String  @db.ObjectId
+  predioId       String  @db.ObjectId
+  numeroPortaria String
+  ativo          Boolean @default(true)
+
+  docente Usuario @relation(fields: [docenteId], references: [id], onDelete: Restrict)
+  predio  Predio  @relation(fields: [predioId], references: [id], onDelete: Restrict)
+
+  @@index([docenteId, ativo])
+  @@index([predioId])
+}
+
+// Diagrama: Predio { nome } 1 -- * Sala. Campus e endereco sao opcionais porque o conjunto
+// inicial de dados (docs/skill_reservas.md + lista oficial) informa apenas o nome do predio.
+// A coordenacao do predio e resolvida diretamente por LotacaoCoordenacao.predioId.
 model Predio {
-  id       String   @id @default(auto()) @map("_id") @db.ObjectId
-  nome     String   @unique
-  endereco Endereco // embutido (composicao 1:1)
+  id       String    @id @default(auto()) @map("_id") @db.ObjectId
+  campusId String?   @db.ObjectId
+  nome     String    @unique
+  endereco Endereco? // embutido (composicao 1:1)
+
+  campus   Campus?              @relation(fields: [campusId], references: [id], onDelete: Restrict)
   salas    Sala[]
+  lotacoes LotacaoCoordenacao[]
+
+  @@index([campusId])
 }
 
 // Composite type: documento embutido, sem colecao propria.
@@ -62,23 +189,38 @@ type Endereco {
   cep    String
 }
 
+// Diagrama: Sala { nome, predio, capacidade }.
+// - `nomeSala` e unico POR PREDIO (ex.: "Sala 01" e "Lab. de Fisica" existem em mais de um predio).
+// - `capacidade` nula = capacidade nao informada (nunca usar 0 ou valor estimado).
+// - `codigo`, `numSala`, `andar` e `tipo` sao legados opcionais: nao constam nos dados iniciais.
+//   `codigo` perdeu o @unique porque, no MongoDB, indice unico em campo opcional colide entre
+//   documentos sem valor (null).
 model Sala {
-  id         String   @id @default(auto()) @map("_id") @db.ObjectId
-  predioId   String   @db.ObjectId
-  numSala    Int
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  predioId   String    @db.ObjectId
+  codigo     String? // Ex: B1-S04
+  numSala    Int?
   nomeSala   String
-  andar      Int
-  capacidade Int
-  tipo       TipoSala
-  ativa      Boolean  @default(true)
+  andar      Int?
+  capacidade Int?
+  tipo       TipoSala?
+  ativa      Boolean   @default(true)
+
+  // Campo tecnico: incrementado dentro da transacao que cria/aprova reservas da sala.
+  // Transacoes concorrentes na mesma sala geram write conflict no MongoDB, substituindo
+  // o `EXCLUDE USING gist` do PostgreSQL na prevencao de double-booking.
+  versaoAgenda Int @default(0)
 
   recursoIds String[] @db.ObjectId
 
-  predio   Predio    @relation(fields: [predioId], references: [id])
+  predio   Predio    @relation(fields: [predioId], references: [id], onDelete: Restrict)
   recursos Recurso[] @relation(fields: [recursoIds], references: [id])
   reservas Reserva[]
 
-  @@unique([predioId, numSala])
+  // Chave natural (predio + nome): impede duplicatas no seed e atende "salas do predio" ordenadas por nome.
+  @@unique([predioId, nomeSala])
+  // Filtro por capacidade minima/maxima sem predio informado.
+  @@index([capacidade])
 }
 
 model Recurso {
@@ -89,22 +231,58 @@ model Recurso {
   salas Sala[] @relation(fields: [salaIds], references: [id])
 }
 
+// Datas da serie sao datas civis armazenadas a 00:00 UTC.
+model SerieRecorrencia {
+  id              String          @id @default(auto()) @map("_id") @db.ObjectId
+  criadoPorId     String          @db.ObjectId // coordenador que criou a serie
+  tipoRecorrencia TipoRecorrencia
+  dataInicio      DateTime
+  dataFim         DateTime
+  diasSemana      DiaSemana[]
+  criadoEm        DateTime        @default(now())
+
+  criadoPor Usuario   @relation(fields: [criadoPorId], references: [id], onDelete: Restrict)
+  reservas  Reserva[]
+
+  @@index([criadoPorId])
+}
+
 model Reserva {
-  id            String        @id @default(auto()) @map("_id") @db.ObjectId
-  solicitanteId String        @db.ObjectId
-  salaId        String        @db.ObjectId
-  aprovadoPorId String?       @db.ObjectId
-  inicio        DateTime
-  fim           DateTime
-  finalidade    String
-  status        StatusReserva @default(PENDENTE)
-  criadoEm      DateTime      @default(now())
-  aprovadoEm    DateTime?
+  id                      String          @id @default(auto()) @map("_id") @db.ObjectId
+  salaId                  String          @db.ObjectId
+  solicitanteId           String          @db.ObjectId
+  responsavelId           String          @db.ObjectId
+  analisadoPorId          String?         @db.ObjectId
+  serieRecorrenciaId      String?         @db.ObjectId
+  tipoRecorrencia         TipoRecorrencia @default(UNICA)
+  dataHoraInicio          DateTime
+  dataHoraFim             DateTime
+  finalidade              String
+  observacoes             String?
+  status                  StatusReserva   @default(PENDENTE_APROVACAO)
+  motivoRejeicao          String?
+  cancelamento            Cancelamento?
+  criadoEm                DateTime        @default(now())
+  aceitoPeloResponsavelEm DateTime?
+  analisadoEm             DateTime?
 
-  solicitante Usuario  @relation("Solicitante", fields: [solicitanteId], references: [id])
-  aprovador   Usuario? @relation("Aprovador", fields: [aprovadoPorId], references: [id])
-  sala        Sala     @relation(fields: [salaId], references: [id])
+  sala             Sala              @relation(fields: [salaId], references: [id], onDelete: Restrict)
+  solicitante      Usuario           @relation("Solicitante", fields: [solicitanteId], references: [id], onDelete: Restrict)
+  responsavel      Usuario           @relation("Responsavel", fields: [responsavelId], references: [id], onDelete: Restrict)
+  analisadoPor     Usuario?          @relation("Analisador", fields: [analisadoPorId], references: [id], onDelete: Restrict)
+  serieRecorrencia SerieRecorrencia? @relation(fields: [serieRecorrenciaId], references: [id], onDelete: Restrict)
 
-  // Acelera a checagem de conflito de horario por sala.
-  @@index([salaId, inicio, fim])
+  // Checagem de conflito de horario por sala (somente APROVADA/AGENDADO bloqueia).
+  @@index([salaId, status, dataHoraInicio, dataHoraFim])
+  // Quota de 12h do aluno (substitui o indice parcial do PostgreSQL).
+  @@index([solicitanteId, status, criadoEm])
+  @@index([responsavelId])
+  @@index([serieRecorrenciaId])
+}
+
+// Registro de cancelamento (1:1 com Reserva), embutido no documento da reserva.
+type Cancelamento {
+  canceladoPorId String   @db.ObjectId
+  justificativa  String
+  canceladoEm    DateTime
 }

@@ -1,4 +1,0 @@
-DB_PASSWORD="senha123"
-DB_USER="hackaton@admin"
-DB_URL="mongodb+srv://${DB_USER}:${DB_PASSWORD}@cluster0.ygc5xht.mongodb.net/"
-NODE_ENV=development
