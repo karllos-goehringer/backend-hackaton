@@ -319,7 +319,7 @@ describe("Predios e Salas — Dataset Inicial, Seed Idempotente, Consultas e Reg
       "Prédio Pedagógico PP",
       "Prédio TI",
       "Salas Ambiente",
-      "Complexo de Laoratório",
+      "Complexo de Laboratório",
     ]);
 
     const todasSalas = DADOS_INICIAIS_PREDIOS_SALAS.flatMap((p) =>
@@ -333,7 +333,7 @@ describe("Predios e Salas — Dataset Inicial, Seed Idempotente, Consultas e Reg
       [
         "Prédio Pedagógico PP -> Sala 11 PP",
         "Prédio Pedagógico PP -> Sala 12 PP",
-        "Complexo de Laoratório -> Lab. da Ciência do Café",
+        "Complexo de Laboratório -> Lab. da Ciência do Café",
       ],
     );
 
@@ -377,7 +377,7 @@ describe("Predios e Salas — Dataset Inicial, Seed Idempotente, Consultas e Reg
 
     const porPredio = new Map(labsFisica.map((s) => [s.predio.nome, s]));
     const labTi = porPredio.get("Prédio TI");
-    const labComplexo = porPredio.get("Complexo de Laoratório");
+    const labComplexo = porPredio.get("Complexo de Laboratório");
 
     assert(labTi);
     assert(labComplexo);

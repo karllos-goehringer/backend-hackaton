@@ -11,7 +11,7 @@ export interface PredioInicialSeed {
 /**
  * Conjunto oficial e autoritativo de predios e salas (IFES).
  * Nomes mantidos integralmente em portugues conforme especificados (incluindo grafia original
- * como "Complexo de Laoratório", "Agroindustria" e "Suino").
+ * como "Complexo de Laboratório", "Agroindustria" e "Suino").
  * Capacidades nao especificadas sao representadas explicitamente por `null`.
  */
 export const DADOS_INICIAIS_PREDIOS_SALAS: readonly PredioInicialSeed[] = [
@@ -90,7 +90,7 @@ export const DADOS_INICIAIS_PREDIOS_SALAS: readonly PredioInicialSeed[] = [
     ],
   },
   {
-    nome: "Complexo de Laoratório",
+    nome: "Complexo de Laboratório",
     salas: [
       { nome: "Diagnose de Doenças de Plantas", capacidade: 20 },
       { nome: "Lab. Anatomia", capacidade: 20 },
