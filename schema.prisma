@@ -288,6 +288,7 @@ model Reserva {
   responsavelId      String        @db.ObjectId
   analisadoPorId     String?       @db.ObjectId
   serieRecorrenciaId String?       @db.ObjectId
+  tipoRecorrencia    TipoRecorrencia @default(UNICA)
   dataHoraInicio     DateTime
   dataHoraFim        DateTime
   finalidade         String

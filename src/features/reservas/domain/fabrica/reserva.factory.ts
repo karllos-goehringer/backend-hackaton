@@ -1,4 +1,4 @@
-import { StatusReserva, type Prisma } from "@prisma/client";
+import { StatusReserva, TipoRecorrencia, type Prisma } from "@prisma/client";
 import { dataCivil } from "../../../../shared/utils/data-hora.js";
 import type { NovaReservaCommand, Ocorrencia, RegraRecorrencia } from "../reserva.types.js";
 import {
@@ -50,6 +50,7 @@ export class ReservaFactory {
       solicitanteId: params.solicitanteId,
       responsavelId: params.responsavelId,
       serieRecorrenciaId: params.serieRecorrenciaId,
+      tipoRecorrencia: params.comando.recorrencia?.tipo ?? TipoRecorrencia.UNICA,
       dataHoraInicio: ocorrencia.inicio,
       dataHoraFim: ocorrencia.fim,
       finalidade: params.comando.finalidade,

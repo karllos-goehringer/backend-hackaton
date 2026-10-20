@@ -39,7 +39,7 @@ Esta documentação descreve os endpoints **efetivamente implementados** no back
   - `REJEITADA`
   - `CANCELADA` *(equivale a `CANCELADO` no diagrama)*
   - `CONCLUIDA` *(equivale a `CONCLUIDO` no diagrama)*
-- **`TipoRecorrencia` (`Frequencia`):** `SEMANAL`, `MENSAL`, `SEMESTRAL`, `ANUAL`
+- **`TipoRecorrencia` (`Frequencia`):** `UNICA`, `SEMANAL`, `MENSAL`, `SEMESTRAL`, `ANUAL`
 - **`DiaSemana`:** `DOMINGO`, `SEGUNDA`, `TERCA`, `QUARTA`, `QUINTA`, `SEXTA`, `SABADO`
 
 ### Notificações em tempo real
@@ -132,6 +132,7 @@ Lista reservas cadastradas, ordenadas por `dataHoraInicio` crescente, enriquecid
       "responsavelId": "64b7f0c2a1b2c3d4e5f60333",
       "analisadoPorId": null,
       "serieRecorrenciaId": null,
+      "tipoRecorrencia": "UNICA",
       "dataHoraInicio": "2026-10-21T13:00:00.000Z",
       "dataHoraFim": "2026-10-21T13:50:00.000Z",
       "finalidade": "Monitoria de Algoritmos",
@@ -189,6 +190,7 @@ Cria uma reserva única ou uma série de reservas recorrentes.
       - `tipo`: `SEMANAL | MENSAL | SEMESTRAL | ANUAL`.
       - `dataFim`: `AAAA-MM-DD` (obrigatório em `SEMANAL`; opcional em `MENSAL`/`SEMESTRAL`/`ANUAL`, que assumem 1, 6 ou 12 meses a partir da data inicial).
       - `diasSemana`: array de `DiaSemana` (obrigatório em `SEMANAL`; opcional em `MENSAL`/`SEMESTRAL`/`ANUAL`, que assumem o dia da semana de `dataHoraInicio` quando omitido).
+      - Quando `recorrencia` não é informada, a reserva é persistida com `tipoRecorrencia: "UNICA"`.
 - **Resposta `201 Created`:**
   ```json
   {
@@ -201,6 +203,7 @@ Cria uma reserva única ou uma série de reservas recorrentes.
         "responsavelId": "64b7f0c2a1b2c3d4e5f60333",
         "analisadoPorId": null,
         "serieRecorrenciaId": null,
+        "tipoRecorrencia": "UNICA",
         "dataHoraInicio": "2026-10-21T13:00:00.000Z",
         "dataHoraFim": "2026-10-21T13:50:00.000Z",
         "finalidade": "Aula de Engenharia de Software",
