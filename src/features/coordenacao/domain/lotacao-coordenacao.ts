@@ -14,5 +14,5 @@ export function estaAtiva(lotacao: LotacaoCoordenacaoDados): boolean {
 /** A lotacao cobre a sala se for do mesmo Predio, ou se tiver Setor definido igual ao Setor do Predio. */
 export function cobreSala(lotacao: LotacaoCoordenacaoDados, sala: LocalizacaoSala): boolean {
   if (lotacao.predioId === sala.predioId) return true;
-  return lotacao.setorId !== null && lotacao.setorId === sala.setorId;
+  return lotacao.setorId !== null && sala.setorId !== null && lotacao.setorId === sala.setorId;
 }

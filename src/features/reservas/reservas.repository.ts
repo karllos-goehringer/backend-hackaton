@@ -3,7 +3,7 @@ import type { DbClient } from "../../shared/database/transacao.js";
 
 export interface ReservaComLocalizacao extends Reserva {
   predioId: string;
-  setorId: string;
+  setorId: string | null;
 }
 
 export interface IntervaloReservado {
@@ -19,6 +19,7 @@ export interface ReservaParaCancelamento extends ReservaComLocalizacao {
 
 export interface FiltrosListagemReservas {
   salaId?: string;
+  predioId?: string;
   status?: StatusReserva;
   solicitanteId?: string;
   responsavelId?: string;
@@ -38,6 +39,7 @@ export class ReservasRepository {
     return this.db.reserva.findMany({
       where: {
         ...(filtros.salaId ? { salaId: filtros.salaId } : {}),
+        ...(filtros.predioId ? { sala: { predioId: filtros.predioId } } : {}),
         ...(filtros.status ? { status: filtros.status } : {}),
         ...(filtros.solicitanteId ? { solicitanteId: filtros.solicitanteId } : {}),
         ...(filtros.responsavelId ? { responsavelId: filtros.responsavelId } : {}),
