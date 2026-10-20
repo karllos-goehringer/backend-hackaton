@@ -193,15 +193,18 @@ model LotacaoCoordenacao {
   @@index([setorId])
 }
 
+// Diagrama: Predio { nome } 1 -- * Sala. Campus, setor e endereco sao opcionais porque o conjunto
+// inicial de dados (docs/skill_reservas.md + lista oficial) informa apenas o nome do predio.
+// Sem setor, a coordenacao do predio e resolvida somente por LotacaoCoordenacao.predioId.
 model Predio {
-  id       String   @id @default(auto()) @map("_id") @db.ObjectId
-  campusId String   @db.ObjectId
-  setorId  String   @db.ObjectId
-  nome     String   @unique
-  endereco Endereco // embutido (composicao 1:1)
+  id       String    @id @default(auto()) @map("_id") @db.ObjectId
+  campusId String?   @db.ObjectId
+  setorId  String?   @db.ObjectId
+  nome     String    @unique
+  endereco Endereco? // embutido (composicao 1:1)
 
-  campus   Campus               @relation(fields: [campusId], references: [id], onDelete: Restrict)
-  setor    Setor                @relation(fields: [setorId], references: [id], onDelete: Restrict)
+  campus   Campus?              @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  setor    Setor?               @relation(fields: [setorId], references: [id], onDelete: Restrict)
   salas    Sala[]
   lotacoes LotacaoCoordenacao[]
 
@@ -218,16 +221,22 @@ type Endereco {
   cep    String
 }
 
+// Diagrama: Sala { nome, predio, capacidade }.
+// - `nomeSala` e unico POR PREDIO (ex.: "Sala 01" e "Lab. de Fisica" existem em mais de um predio).
+// - `capacidade` nula = capacidade nao informada (nunca usar 0 ou valor estimado).
+// - `codigo`, `numSala`, `andar` e `tipo` sao legados opcionais: nao constam nos dados iniciais.
+//   `codigo` perdeu o @unique porque, no MongoDB, indice unico em campo opcional colide entre
+//   documentos sem valor (null).
 model Sala {
-  id         String   @id @default(auto()) @map("_id") @db.ObjectId
-  predioId   String   @db.ObjectId
-  codigo     String   @unique // Ex: B1-S04
-  numSala    Int
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  predioId   String    @db.ObjectId
+  codigo     String? // Ex: B1-S04
+  numSala    Int?
   nomeSala   String
-  andar      Int
-  capacidade Int
-  tipo       TipoSala
-  ativa      Boolean  @default(true)
+  andar      Int?
+  capacidade Int?
+  tipo       TipoSala?
+  ativa      Boolean   @default(true)
 
   // Campo tecnico: incrementado dentro da transacao que cria/aprova reservas da sala.
   // Transacoes concorrentes na mesma sala geram write conflict no MongoDB, substituindo
@@ -240,7 +249,10 @@ model Sala {
   recursos Recurso[] @relation(fields: [recursoIds], references: [id])
   reservas Reserva[]
 
-  @@unique([predioId, numSala])
+  // Chave natural (predio + nome): impede duplicatas no seed e atende "salas do predio" ordenadas por nome.
+  @@unique([predioId, nomeSala])
+  // Filtro por capacidade minima/maxima sem predio informado.
+  @@index([capacidade])
 }
 
 model Recurso {

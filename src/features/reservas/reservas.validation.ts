@@ -142,6 +142,10 @@ export function validarFiltrosListagem(query: unknown): FiltrosListagemReservas 
     if (!ehObjectId(query.salaId)) erros.salaId = "Id de sala invalido.";
     else filtros.salaId = query.salaId;
   }
+  if (query.predioId !== undefined) {
+    if (!ehObjectId(query.predioId)) erros.predioId = "Id de predio invalido.";
+    else filtros.predioId = query.predioId;
+  }
   if (query.solicitanteId !== undefined) {
     if (!ehObjectId(query.solicitanteId)) erros.solicitanteId = "Id de solicitante invalido.";
     else filtros.solicitanteId = query.solicitanteId;

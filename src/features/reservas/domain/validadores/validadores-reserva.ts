@@ -159,20 +159,9 @@ export class ValidadorQuota12HorasAluno extends ValidadorReserva {
   static readonly LIMITE_JANELA_12H = 2;
 
   protected async executar({ politica, ator, ocorrencias, agora, reservas }: ContextoValidacaoReserva): Promise<void> {
-    const desde = new Date(agora.getTime() - ValidadorQuota12HorasAluno.JANELA_MS);
-
-    if (politica.exigeQuotaPendente12Horas) {
-      const pendentes = await reservas.contarPorSolicitanteEStatusDesde(
-        ator.id,
-        StatusReserva.PENDENTE_APROVACAO,
-        desde,
-      );
-      if (pendentes > 0) {
-        throw new BusinessRuleError("Alunos podem ter apenas 1 reserva pendente a cada 12 horas.");
-      }
-    }
-
     if (!politica.exigeQuota12Horas) return;
+
+    const desde = new Date(agora.getTime() - ValidadorQuota12HorasAluno.JANELA_MS);
 
     const criadasNaJanela =
       typeof reservas.contarAtivasPorSolicitanteDesde === "function"
