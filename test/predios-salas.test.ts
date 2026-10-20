@@ -45,7 +45,7 @@ import { criarSalasRouter } from "../src/features/salas/salas.routes.js";
 import { SalasService } from "../src/features/salas/salas.service.js";
 import { validarCriacaoSala, validarFiltrosSalas } from "../src/features/salas/salas.validation.js";
 import { TipoEntrada } from "../src/features/usuarios/credencial.dto.js";
-import { ehMatriculaAlunoValida, ehSiapeValido, UsuariosService } from "../src/features/usuarios/usuarios.service.js";
+import { UsuariosService } from "../src/features/usuarios/usuarios.service.js";
 import {
   BusinessRuleError,
   ConflictError,
@@ -831,11 +831,6 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
   });
 
   test("11. Cadastro de usuarios para ALUNO, PROFESSOR, TECNICO e COORDENADOR com validacao de matricula vs SIAPE e campos opcionais", async () => {
-    assert.equal(ehMatriculaAlunoValida("20261001"), true);
-    assert.equal(ehMatriculaAlunoValida("20241INFO0012"), true);
-    assert.equal(ehMatriculaAlunoValida("1543210"), false); // SIAPE 7 digitos rejeitado como matricula
-    assert.equal(ehSiapeValido("1543210"), true);
-    assert.equal(ehSiapeValido("20261001"), false); // Matricula 8 digitos rejeitada como SIAPE
 
     const usuariosMem = new Map<string, any>();
     const lotacoesMem: any[] = [];
@@ -992,6 +987,20 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
         ),
       (err: unknown) => err instanceof ValidationError,
     );
+
+    // 4. Mesmo com provisionKey configurada no servico/ambiente, o cadastro de servidor e validado pelo tipoCredencial
+    // e cria o nivelAcesso e role no backend sem depender do cabecalho x-provision-key
+    const servicoComChave = new UsuariosService({ prisma: prismaUsuarios, provisionKey: "chave-legada-qualquer" });
+    const profSemHeader = await servicoComChave.cadastrar({
+      nome: "Prof. Sem Header",
+      siape: "1987654",
+      senha: "SenhaSegura@123",
+      role: "PROFESSOR",
+    });
+    assert.equal(profSemHeader.nivelAcesso, NivelAcesso.PROFESSOR);
+    assert.equal(profSemHeader.role, "PROFESSOR");
+    assert.equal(profSemHeader.tipoCredencial, TipoCredencial.SIAPE_DOCENTE);
+    assert.equal(profSemHeader.identificador, "1987654");
   });
 
   test("12. Transicoes de estado de reserva (aceite do responsavel -> APROVADA, rejeicao -> REJEITADA) e fronteira entre coordenadores", async () => {

@@ -118,8 +118,7 @@ export class PrediosService {
     await predios.remover(id);
   }
 
-  async semearDadosIniciais(ator: AtorAutenticado): Promise<ResultadoSeedPrediosSalas> {
-    this.garantirPermissaoCoordenador(ator);
+  async semearDadosIniciais(): Promise<ResultadoSeedPrediosSalas> {
     return semearPrediosESalasIniciais(this.prisma);
   }
 

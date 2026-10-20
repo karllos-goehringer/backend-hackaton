@@ -10,19 +10,19 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
     openapi: "3.0.3",
     info: {
       title: "ReservaIF — API de Reservas de Salas e Laboratórios (IFES)",
-      version: "1.1.0",
+      version: "1.2.0",
       description: [
         "API REST do sistema **ReservaIF** para gerenciamento de prédios, salas, laboratórios, solicitações de reserva, fluxo de aprovação por responsável/coordenação e cancelamentos no IFES.",
         "",
         "### Autenticação JWT (`Bearer`)",
-        "1. Obtenha um token em `POST /autenticacao/login` informando `{ tipoEntrada, entrada, senha }`.",
+        "1. Obtenha um token em `POST /autenticacao/login` informando `{ entrada, senha }` (ou opcionalmente `tipoEntrada`).",
         "2. Clique no botão **Authorize** no topo do Swagger UI e cole **apenas o valor do campo `token`** (sem o prefixo `Bearer `, pois o Swagger UI o adiciona automaticamente).",
         "3. Todas as rotas protegidas enviarão o cabeçalho `Authorization: Bearer <token>`.",
         "",
         "### Perfis de Acesso (`NivelAcesso`)",
         "- `1` — **ALUNO** (`MATRICULA_ALUNO`): cadastra-se com `matricula` (8 a 15 caracteres; `email` e `telefone` opcionais). Solicita reservas com indicação obrigatória de servidor/coordenador responsável (`responsavelId`), antecedência mínima de 12h e limite de 2 reservas a cada 12h e 2 por dia (`status = PENDENTE_APROVACAO` até aceite do responsável).",
         "- `2` — **TECNICO** (`SIAPE_TECNICO`): cadastra-se com `siape` (6 a 7 dígitos numéricos). Cria reservas para si mesmo com agendamento imediato (`status = AGENDADO`), respeitando antecedência mínima de 12h e limite de 2 reservas a cada 12h e 2 por dia, ou atua como responsável por reserva de aluno.",
-        "- `3` — **PROFESSOR** (`SIAPE_DOCENTE`): cadastra-se com `siape` (6 a 7 dígitos numéricos). Cria reservas com agendamento imediato (`status = AGENDADO`), aceita/aprova reservas de alunos sob sua responsabilidade (`status = APROVADA`) e pode solicitar à coordenação o cancelamento de reserva de aluno.",
+        "- `3` — **PROFESSOR** (`SIAPE_DOCENTE`): cadastra-se com `siape` (6 a 7 dígitos numéricos). Cria reservas com agendamento imediato (`status = AGENDADO`), aceita reservas de alunos sob sua responsabilidade (`PATCH /reservas/:id/aceitar-responsabilidade` -> `status = APROVADA`) e pode solicitar à coordenação o cancelamento de reserva de aluno (`202 Accepted`).",
         "- `4` — **COORDENADOR** (`SIAPE_DOCENTE` com papel/lotação de coordenação): cadastra-se com `siape` (6 a 7 dígitos numéricos) e vínculo a prédio(s) coordenado(s). Gerencia prédios e salas dentro de seu escopo territorial, cria séries recorrentes (`SEMANAL`, `MENSAL`, `SEMESTRAL`, `ANUAL`) com `status = APROVADA`, e aprova/rejeita/cancela reservas do seu prédio desde que não estejam sob a responsabilidade de outro coordenador.",
         "",
         "### Regras Gerais de Agendamento",
@@ -137,15 +137,9 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           type: "object",
           required: ["entrada", "senha"],
           properties: {
-            tipoEntrada: {
-              type: "integer",
-              enum: [0, 1, 2],
-              description: "Tipo de credencial: `0 = LOCAL`, `1 = CORPORATIVA`, `2 = OAUTH`.",
-              example: 0,
-            },
             entrada: {
               oneOf: [{ type: "string" }, { type: "integer" }],
-              description: "Identificador de login (matrícula de 8–15 caracteres do aluno ou SIAPE de 6–7 dígitos do servidor).",
+              description: "Identificador de login: matrícula (8–15 caracteres do aluno) ou SIAPE (6–7 dígitos do servidor).",
               example: "20261001",
             },
             senha: {
@@ -153,6 +147,12 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               format: "password",
               description: "Senha cadastrada (mínimo de 8 bytes UTF-8).",
               example: "SenhaSegura@123",
+            },
+            tipoEntrada: {
+              type: "integer",
+              enum: [0, 1, 2],
+              description: "Tipo de credencial opcional: `0 = LOCAL` (padrão), `1 = CORPORATIVA`, `2 = OAUTH`.",
+              example: 0,
             },
           },
         },
@@ -182,23 +182,23 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           type: "object",
           required: ["senha"],
           properties: {
-            tipoEntrada: {
-              type: "integer",
-              enum: [0, 1, 2],
-              description: "`0 = LOCAL` (padrão), `1 = CORPORATIVA`, `2 = OAUTH`.",
-              example: 0,
-            },
-            entrada: {
-              oneOf: [{ type: "string" }, { type: "integer" }],
-              description: "Matrícula (8–15 caracteres, para `ALUNO`) ou SIAPE (6–7 dígitos numéricos, para `PROFESSOR`/`TECNICO`/`COORDENADOR`). Pode ser omitido se `matricula` ou `siape` for informado no topo do payload.",
-              example: "20261001",
-            },
             senha: {
               type: "string",
               minLength: 8,
               maxLength: 72,
               description: "Senha entre 8 e 72 bytes UTF-8.",
               example: "SenhaSegura@123",
+            },
+            entrada: {
+              oneOf: [{ type: "string" }, { type: "integer" }],
+              description: "Opcional quando `matricula` ou `siape` for informado no topo do payload.",
+              example: "20261001",
+            },
+            tipoEntrada: {
+              type: "integer",
+              enum: [0, 1, 2],
+              description: "`0 = LOCAL` (padrão), `1 = CORPORATIVA`, `2 = OAUTH`.",
+              example: 0,
             },
           },
         },
@@ -210,10 +210,11 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               type: "string",
               pattern: "^[a-fA-F0-9]{24}$",
               description: "ObjectId do prédio coordenado.",
-              example: "64b7f0c2a1b2c3d4e5f60011",
+              example: "64b7f0c2a1b2c3d4e5f60015",
             },
             numeroPortaria: {
               type: "string",
+              description: "Portaria de designação da coordenação.",
               example: "PORTARIA-IFES-2026-01",
             },
           },
@@ -222,45 +223,15 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           type: "object",
           required: ["nome"],
           properties: {
-            uuid: {
-              type: "string",
-              pattern: "^[a-fA-F0-9]{24}$",
-              description: "ObjectId opcional (gerado automaticamente quando omitido).",
-              example: "64b7f0c2a1b2c3d4e5f60222",
-            },
             nome: {
               type: "string",
               example: "Ana Clara Souza",
-            },
-            email: {
-              type: "string",
-              format: "email",
-              nullable: true,
-              description: "E-mail institucional opcional. Quando informado, é normalizado para minúsculas e validado.",
-              example: "ana.souza@ifes.edu.br",
-            },
-            telefone: {
-              type: "string",
-              nullable: true,
-              description: "Telefone de contato opcional.",
-              example: "(27) 99999-0000",
             },
             role: {
               type: "string",
               enum: ["ALUNO", "PROFESSOR", "TECNICO", "COORDENADOR"],
               description: "Papel do usuário (`ALUNO`, `PROFESSOR`, `TECNICO` ou `COORDENADOR`).",
               example: "ALUNO",
-            },
-            nivelAcesso: {
-              type: "integer",
-              enum: [1, 2, 3, 4],
-              description: "`1 = ALUNO`, `2 = TECNICO`, `3 = PROFESSOR`, `4 = COORDENADOR`.",
-              example: 1,
-            },
-            tipoCredencial: {
-              type: "string",
-              enum: ["MATRICULA_ALUNO", "SIAPE_DOCENTE", "SIAPE_TECNICO", "COORDENADOR"],
-              example: "MATRICULA_ALUNO",
             },
             matricula: {
               oneOf: [{ type: "string" }, { type: "integer" }],
@@ -269,46 +240,280 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             },
             siape: {
               oneOf: [{ type: "string" }, { type: "integer" }],
-              description: "Exclusivo para `PROFESSOR`, `TECNICO` e `COORDENADOR`: SIAPE numérico de 6 a 7 dígitos (rejeita matrícula de aluno).",
+              description: "Exclusivo para `PROFESSOR`, `TECNICO` e `COORDENADOR`: SIAPE numérico de 6 a 7 dígitos.",
               example: "1543210",
             },
             senha: {
               type: "string",
               minLength: 8,
               maxLength: 72,
-              description: "Senha entre 8 e 72 bytes UTF-8 (forma simplificada recomendada; dispensa enviar o objeto credencial).",
+              description: "Senha entre 8 e 72 bytes UTF-8 (recomendada; dispensa objeto credencial).",
               example: "SenhaSegura@123",
             },
-            credencial: {
-              $ref: "#/components/schemas/CriarCredencialInput",
+            email: {
+              type: "string",
+              format: "email",
+              nullable: true,
+              description: "E-mail institucional opcional.",
+              example: "ana.souza@ifes.edu.br",
+            },
+            telefone: {
+              type: "string",
+              nullable: true,
+              description: "Telefone de contato opcional.",
+              example: "(27) 99999-0000",
             },
             departamentoId: {
               type: "string",
               pattern: "^[a-fA-F0-9]{24}$",
               nullable: true,
-              description: "Opcional para `PROFESSOR`, `TECNICO` e `COORDENADOR`. Quando informado, deve existir na coleção `departamentos`.",
+              description: "Opcional para servidores (`PROFESSOR`, `TECNICO`, `COORDENADOR`).",
               example: "64b7f0c2a1b2c3d4e5f60002",
             },
             predioId: {
               type: "string",
               pattern: "^[a-fA-F0-9]{24}$",
               nullable: true,
-              description: "Opcional para `COORDENADOR`: vincula o coordenador ao prédio informado.",
-            },
-            predioIds: {
-              type: "array",
-              items: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
-              description: "Opcional para `COORDENADOR`: lista de prédios coordenados.",
+              description: "Opcional para `COORDENADOR`: vincula o prédio sob sua coordenação.",
+              example: "64b7f0c2a1b2c3d4e5f60015",
             },
             numeroPortaria: {
               type: "string",
+              nullable: true,
               description: "Portaria de designação opcional para `COORDENADOR`.",
               example: "PORTARIA-IFES-2026-01",
+            },
+            uuid: {
+              type: "string",
+              pattern: "^[a-fA-F0-9]{24}$",
+              description: "ObjectId opcional (gerado automaticamente quando omitido).",
+              example: "64b7f0c2a1b2c3d4e5f60222",
+            },
+            credencial: {
+              $ref: "#/components/schemas/CriarCredencialInput",
             },
             coordenacoes: {
               type: "array",
               items: { $ref: "#/components/schemas/LotacaoCoordenacaoCadastroInput" },
-              description: "Opcional para `COORDENADOR`: lotações de coordenação com prédio e portaria.",
+              description: "Opcional para `COORDENADOR`: lista de lotações com prédio e portaria.",
+            },
+          },
+        },
+        CadastroAlunoInput: {
+          type: "object",
+          required: ["nome", "matricula", "senha"],
+          properties: {
+            nome: {
+              type: "string",
+              example: "Ana Clara Souza",
+            },
+            matricula: {
+              oneOf: [{ type: "string" }, { type: "integer" }],
+              description: "Matrícula de 8 a 15 caracteres (rejeita SIAPE de 6 a 7 dígitos).",
+              example: "20261001",
+            },
+            senha: {
+              type: "string",
+              minLength: 8,
+              maxLength: 72,
+              description: "Senha cadastrada (mínimo de 8 bytes UTF-8).",
+              example: "SenhaSegura@123",
+            },
+            email: {
+              type: "string",
+              format: "email",
+              nullable: true,
+              description: "E-mail institucional opcional.",
+              example: "ana.souza@ifes.edu.br",
+            },
+            telefone: {
+              type: "string",
+              nullable: true,
+              description: "Telefone de contato opcional.",
+              example: "(27) 99999-0000",
+            },
+          },
+        },
+        CadastroServidorInput: {
+          type: "object",
+          required: ["nome", "siape", "senha"],
+          properties: {
+            nome: {
+              type: "string",
+              example: "Prof. Carlos Mendes",
+            },
+            role: {
+              type: "string",
+              enum: ["PROFESSOR", "TECNICO", "COORDENADOR"],
+              description: "Papel do servidor (`PROFESSOR`, `TECNICO` ou `COORDENADOR`).",
+              example: "PROFESSOR",
+            },
+            siape: {
+              oneOf: [{ type: "string" }, { type: "integer" }],
+              description: "SIAPE numérico de 6 a 7 dígitos (rejeita matrícula de aluno).",
+              example: "1543210",
+            },
+            senha: {
+              type: "string",
+              minLength: 8,
+              maxLength: 72,
+              description: "Senha de acesso.",
+              example: "SenhaSegura@123",
+            },
+            email: {
+              type: "string",
+              format: "email",
+              nullable: true,
+              example: "carlos.mendes@ifes.edu.br",
+            },
+            telefone: {
+              type: "string",
+              nullable: true,
+              example: "(27) 98888-1111",
+            },
+            departamentoId: {
+              type: "string",
+              pattern: "^[a-fA-F0-9]{24}$",
+              nullable: true,
+              example: "64b7f0c2a1b2c3d4e5f60002",
+            },
+            predioId: {
+              type: "string",
+              pattern: "^[a-fA-F0-9]{24}$",
+              nullable: true,
+              description: "Prédio coordenado (quando role = COORDENADOR).",
+              example: "64b7f0c2a1b2c3d4e5f60015",
+            },
+            numeroPortaria: {
+              type: "string",
+              nullable: true,
+              example: "PORTARIA-IFES-2026-01",
+            },
+          },
+        },
+        CadastroProfessorInput: {
+          type: "object",
+          required: ["nome", "siape", "senha"],
+          properties: {
+            nome: {
+              type: "string",
+              example: "Prof. Carlos Mendes",
+            },
+            siape: {
+              oneOf: [{ type: "string" }, { type: "integer" }],
+              description: "SIAPE numérico de 6 a 7 dígitos.",
+              example: "1543210",
+            },
+            senha: {
+              type: "string",
+              minLength: 8,
+              maxLength: 72,
+              example: "SenhaSegura@123",
+            },
+            email: {
+              type: "string",
+              format: "email",
+              nullable: true,
+              example: "carlos.mendes@ifes.edu.br",
+            },
+            telefone: {
+              type: "string",
+              nullable: true,
+              example: "(27) 98888-1111",
+            },
+            departamentoId: {
+              type: "string",
+              pattern: "^[a-fA-F0-9]{24}$",
+              nullable: true,
+              example: "64b7f0c2a1b2c3d4e5f60002",
+            },
+          },
+        },
+        CadastroTecnicoInput: {
+          type: "object",
+          required: ["nome", "siape", "senha"],
+          properties: {
+            nome: {
+              type: "string",
+              example: "João Silva",
+            },
+            siape: {
+              oneOf: [{ type: "string" }, { type: "integer" }],
+              description: "SIAPE numérico de 6 a 7 dígitos.",
+              example: "1654321",
+            },
+            senha: {
+              type: "string",
+              minLength: 8,
+              maxLength: 72,
+              example: "SenhaSegura@123",
+            },
+            email: {
+              type: "string",
+              format: "email",
+              nullable: true,
+              example: "joao.silva@ifes.edu.br",
+            },
+            telefone: {
+              type: "string",
+              nullable: true,
+              example: "(27) 97777-2222",
+            },
+            departamentoId: {
+              type: "string",
+              pattern: "^[a-fA-F0-9]{24}$",
+              nullable: true,
+              example: "64b7f0c2a1b2c3d4e5f60002",
+            },
+          },
+        },
+        CadastroCoordenadorInput: {
+          type: "object",
+          required: ["nome", "siape", "senha", "predioId"],
+          properties: {
+            nome: {
+              type: "string",
+              example: "Coord. Roberto Lima",
+            },
+            siape: {
+              oneOf: [{ type: "string" }, { type: "integer" }],
+              description: "SIAPE numérico de 6 a 7 dígitos.",
+              example: "1765432",
+            },
+            senha: {
+              type: "string",
+              minLength: 8,
+              maxLength: 72,
+              example: "SenhaSegura@123",
+            },
+            predioId: {
+              type: "string",
+              pattern: "^[a-fA-F0-9]{24}$",
+              description: "ObjectId do prédio coordenado.",
+              example: "64b7f0c2a1b2c3d4e5f60015",
+            },
+            numeroPortaria: {
+              type: "string",
+              nullable: true,
+              description: "Portaria de designação.",
+              example: "PORTARIA-IFES-2026-01",
+            },
+            email: {
+              type: "string",
+              format: "email",
+              nullable: true,
+              example: "roberto.lima@ifes.edu.br",
+            },
+            telefone: {
+              type: "string",
+              nullable: true,
+              example: "(27) 98888-3333",
+            },
+            departamentoId: {
+              type: "string",
+              pattern: "^[a-fA-F0-9]{24}$",
+              nullable: true,
+              example: "64b7f0c2a1b2c3d4e5f60002",
             },
           },
         },
@@ -317,25 +522,27 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           required: ["id", "predioId", "numeroPortaria", "ativo", "coordenador", "predio"],
           properties: {
             id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60555" },
-            predioId: { type: "string", example: "64b7f0c2a1b2c3d4e5f60011" },            numeroPortaria: { type: "string", example: "PORTARIA-IFES-2026-01" },
+            predioId: { type: "string", example: "64b7f0c2a1b2c3d4e5f60015" },
+            numeroPortaria: { type: "string", example: "PORTARIA-IFES-2026-01" },
             ativo: { type: "boolean", example: true },
             coordenador: {
               type: "object",
               required: ["id", "nome", "siape"],
               properties: {
                 id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60333" },
-                nome: { type: "string", example: "Prof. Carlos Mendes" },
-                siape: { type: "string", example: "1543210" },
-                email: { type: "string", nullable: true, example: "carlos.mendes@ifes.edu.br" },
+                nome: { type: "string", example: "Coord. Roberto Lima" },
+                siape: { type: "string", example: "1765432" },
+                email: { type: "string", nullable: true, example: "roberto.lima@ifes.edu.br" },
               },
             },
             predio: {
               type: "object",
               nullable: true,
               properties: {
-                id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60011" },
+                id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60015" },
                 nome: { type: "string", example: "Prédio TI" },
-                campusId: { type: "string", nullable: true },              },
+                campusId: { type: "string", nullable: true },
+              },
             },
           },
         },
@@ -449,11 +656,11 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             nome: { type: "string", example: "Prof. Carlos Mendes" },
             email: { type: "string", format: "email", nullable: true, example: "carlos.mendes@ifes.edu.br" },
             telefone: { type: "string", nullable: true, example: "(27) 98888-1111" },
-            nivelAcesso: { type: "integer", enum: [1, 2, 3, 4], example: 4 },
+            nivelAcesso: { type: "integer", enum: [1, 2, 3, 4], example: 3 },
             role: {
               type: "string",
               enum: ["ALUNO", "TECNICO", "PROFESSOR", "COORDENADOR"],
-              example: "COORDENADOR",
+              example: "PROFESSOR",
             },
             tipoCredencial: {
               type: "string",
@@ -467,14 +674,14 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               type: "object",
               nullable: true,
               properties: {
-                matricula: { type: "string" },
+                matricula: { type: "string", example: "20261001" },
               },
             },
             servidor: {
               type: "object",
               nullable: true,
               properties: {
-                siape: { type: "string" },
+                siape: { type: "string", example: "1543210" },
                 departamento: { type: "object", nullable: true, additionalProperties: true },
               },
             },
@@ -498,9 +705,10 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           type: "object",
           required: ["id", "nome", "campusId", "endereco"],
           properties: {
-            id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60011" },
-            nome: { type: "string", example: "Prédio Administrativo" },
-            campusId: { type: "string", nullable: true, example: null },            endereco: {
+            id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60015" },
+            nome: { type: "string", example: "Prédio TI" },
+            campusId: { type: "string", nullable: true, example: null },
+            endereco: {
               allOf: [{ $ref: "#/components/schemas/Endereco" }],
               nullable: true,
             },
@@ -521,25 +729,25 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             "tipo",
           ],
           properties: {
-            id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60101" },
-            nome: { type: "string", example: "Auditório II" },
-            nomeSala: { type: "string", example: "Auditório II" },
+            id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60111" },
+            nome: { type: "string", example: "Laboratório de Informática 01" },
+            nomeSala: { type: "string", example: "Laboratório de Informática 01" },
             capacidade: {
               type: "integer",
               nullable: true,
-              description: "Capacidade máxima da sala ou `null` quando não especificada no levantamento institucional.",
-              example: 200,
+              description: "Capacidade máxima da sala ou `null` quando não especificada.",
+              example: 30,
             },
-            predioId: { type: "string", example: "64b7f0c2a1b2c3d4e5f60011" },
+            predioId: { type: "string", example: "64b7f0c2a1b2c3d4e5f60015" },
             ativa: { type: "boolean", example: true },
             codigo: { type: "string", nullable: true, example: null },
             numSala: { type: "integer", nullable: true, example: null },
-            andar: { type: "integer", nullable: true, example: null },
+            andar: { type: "integer", nullable: true, example: 1 },
             tipo: {
               type: "string",
               enum: ["SALA_AULA", "LABORATORIO", "AUDITORIO", "REUNIAO"],
               nullable: true,
-              example: null,
+              example: "LABORATORIO",
             },
           },
         },
@@ -562,10 +770,20 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           type: "object",
           required: ["nome"],
           properties: {
-            nome: { type: "string", example: "Prédio de Pós-Graduação" },
-            campusId: { type: "string", nullable: true, example: null },            endereco: {
+            nome: { type: "string", example: "Prédio de Pesquisa e Extensão" },
+            campusId: { type: "string", nullable: true, example: null },
+            endereco: {
               allOf: [{ $ref: "#/components/schemas/Endereco" }],
               nullable: true,
+            },
+          },
+          example: {
+            nome: "Prédio de Pesquisa e Extensão",
+            endereco: {
+              rua: "Rodovia ES-080, Km 93",
+              numero: 100,
+              bairro: "São João de Petrópolis",
+              cep: "29660-000",
             },
           },
         },
@@ -573,11 +791,15 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           type: "object",
           description: "Informe ao menos um campo para atualizar.",
           properties: {
-            nome: { type: "string", example: "Prédio de Pesquisa e Pós-Graduação" },
-            campusId: { type: "string", nullable: true },            endereco: {
+            nome: { type: "string", example: "Prédio de Pesquisa e Extensão (Reformado)" },
+            campusId: { type: "string", nullable: true },
+            endereco: {
               allOf: [{ $ref: "#/components/schemas/Endereco" }],
               nullable: true,
             },
+          },
+          example: {
+            nome: "Prédio de Pesquisa e Extensão (Reformado)",
           },
         },
         ResultadoSeedPrediosSalas: {
@@ -612,7 +834,8 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
                   properties: {
                     id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60015" },
                     nome: { type: "string", example: "Prédio TI" },
-                    campusId: { type: "string", nullable: true, example: null },                  },
+                    campusId: { type: "string", nullable: true, example: null },
+                  },
                 },
               },
             },
@@ -620,59 +843,65 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
         },
         CriarSalaInput: {
           type: "object",
-          required: ["predioId"],
-          description: "Informe `nome` (ou `nomeSala`) e `predioId`. `capacidade` aceita inteiro >= 1 ou `null`.",
+          required: ["predioId", "nomeSala"],
+          description: "Informe `predioId` e `nomeSala`. `capacidade` aceita inteiro >= 1 ou `null`.",
           properties: {
             predioId: {
               type: "string",
               pattern: "^[a-fA-F0-9]{24}$",
-              example: "64b7f0c2a1b2c3d4e5f60013",
-            },
-            nome: {
-              type: "string",
-              description: "Nome da sala (alternativamente aceita `nomeSala`).",
-              example: "Sala 13 PP",
+              example: "64b7f0c2a1b2c3d4e5f60015",
             },
             nomeSala: {
               type: "string",
-              example: "Sala 13 PP",
+              description: "Nome único da sala dentro do prédio informado.",
+              example: "Laboratório de Redes e Sistemas",
             },
             capacidade: {
               type: "integer",
               minimum: 1,
               nullable: true,
-              description: "Inteiro positivo (`>= 1`) ou `null` quando não especificada. O valor `0` é rejeitado.",
-              example: 35,
+              description: "Inteiro positivo (`>= 1`) ou `null` quando não especificada.",
+              example: 30,
             },
-            codigo: { type: "string", nullable: true, example: null },
-            numSala: { type: "integer", minimum: 0, nullable: true, example: null },
-            andar: { type: "integer", nullable: true, example: null },
             tipo: {
               type: "string",
               enum: ["SALA_AULA", "LABORATORIO", "AUDITORIO", "REUNIAO"],
               nullable: true,
-              example: "SALA_AULA",
+              example: "LABORATORIO",
             },
+            andar: { type: "integer", nullable: true, example: 1 },
+            codigo: { type: "string", nullable: true, example: null },
+            numSala: { type: "integer", minimum: 0, nullable: true, example: null },
             ativa: { type: "boolean", example: true },
+          },
+          example: {
+            predioId: "64b7f0c2a1b2c3d4e5f60015",
+            nomeSala: "Laboratório de Redes e Sistemas",
+            capacidade: 30,
+            andar: 1,
+            tipo: "LABORATORIO",
+            ativa: true,
           },
         },
         AtualizarSalaInput: {
           type: "object",
           description: "Informe ao menos um campo para atualizar a sala.",
           properties: {
-            predioId: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
-            nome: { type: "string", example: "Sala 13 PP (Reformada)" },
-            nomeSala: { type: "string" },
-            capacidade: { type: "integer", minimum: 1, nullable: true, example: 40 },
-            codigo: { type: "string", nullable: true },
-            numSala: { type: "integer", minimum: 0, nullable: true },
-            andar: { type: "integer", nullable: true },
+            nomeSala: { type: "string", example: "Laboratório de Redes Avançadas" },
+            capacidade: { type: "integer", minimum: 1, nullable: true, example: 35 },
             tipo: {
               type: "string",
               enum: ["SALA_AULA", "LABORATORIO", "AUDITORIO", "REUNIAO"],
               nullable: true,
             },
+            andar: { type: "integer", nullable: true },
             ativa: { type: "boolean", example: true },
+            predioId: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
+          },
+          example: {
+            nomeSala: "Laboratório de Redes Avançadas",
+            capacidade: 35,
+            ativa: true,
           },
         },
         CancelamentoEmbutido: {
@@ -750,7 +979,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             status: {
               type: "string",
               enum: ["PENDENTE_APROVACAO", "APROVADA", "AGENDADO", "REJEITADA", "CANCELADA", "CONCLUIDA"],
-              example: "APROVADA",
+              example: "AGENDADO",
             },
             motivoRejeicao: { type: "string", nullable: true, example: null },
             cancelamento: {
@@ -783,7 +1012,8 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
                   properties: {
                     id: { type: "string" },
                     nome: { type: "string" },
-                    campusId: { type: "string", nullable: true },                    endereco: { $ref: "#/components/schemas/Endereco" },
+                    campusId: { type: "string", nullable: true },
+                    endereco: { $ref: "#/components/schemas/Endereco" },
                   },
                 },
                 recursos: {
@@ -942,8 +1172,11 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           properties: {
             motivo: {
               type: "string",
-              example: "Sala reservada para manutenção elétrica programada.",
+              example: "Sala interditada para manutenção preventiva na rede elétrica.",
             },
+          },
+          example: {
+            motivo: "Sala interditada para manutenção preventiva na rede elétrica.",
           },
         },
         CancelarReservaInput: {
@@ -952,8 +1185,11 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           properties: {
             justificativa: {
               type: "string",
-              example: "Imprevisto acadêmico / conflito de agenda.",
+              example: "Cancelamento solicitado devido a alteração imprevista no calendário acadêmico.",
             },
+          },
+          example: {
+            justificativa: "Cancelamento solicitado devido a alteração imprevista no calendário acadêmico.",
           },
         },
         ResultadoCancelamento: {
@@ -1016,13 +1252,43 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           tags: ["Autenticação"],
           summary: "Autenticar usuário e emitir token JWT",
           description:
-            "Valida a credencial (`tipoEntrada`, `entrada` e `senha`) de um usuário ativo e retorna `{ uuid, nivelAcesso, token }`.",
+            "Valida a credencial (`entrada` e `senha`) de um usuário ativo e retorna `{ uuid, nivelAcesso, token }`. `tipoEntrada` é opcional (`0 = LOCAL` por padrão).",
           security: [],
           requestBody: {
             required: true,
             content: {
               "application/json": {
                 schema: { $ref: "#/components/schemas/AutenticarCredencialInput" },
+                examples: {
+                  loginAluno: {
+                    summary: "Login de Aluno (por Matrícula)",
+                    value: {
+                      entrada: "20261001",
+                      senha: "SenhaSegura@123",
+                    },
+                  },
+                  loginProfessor: {
+                    summary: "Login de Professor (por SIAPE)",
+                    value: {
+                      entrada: "1543210",
+                      senha: "SenhaSegura@123",
+                    },
+                  },
+                  loginTecnico: {
+                    summary: "Login de Técnico (por SIAPE)",
+                    value: {
+                      entrada: "1654321",
+                      senha: "SenhaSegura@123",
+                    },
+                  },
+                  loginCoordenador: {
+                    summary: "Login de Coordenador (por SIAPE)",
+                    value: {
+                      entrada: "1765432",
+                      senha: "SenhaSegura@123",
+                    },
+                  },
+                },
               },
             },
           },
@@ -1065,6 +1331,16 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             content: {
               "application/json": {
                 schema: { $ref: "#/components/schemas/AutenticarCredencialInput" },
+                examples: {
+                  loginAluno: {
+                    summary: "Login de Aluno",
+                    value: { entrada: "20261001", senha: "SenhaSegura@123" },
+                  },
+                  loginServidor: {
+                    summary: "Login de Servidor",
+                    value: { entrada: "1543210", senha: "SenhaSegura@123" },
+                  },
+                },
               },
             },
           },
@@ -1122,27 +1398,61 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           tags: ["Usuários"],
           summary: "Cadastrar usuário (ALUNO, PROFESSOR, TECNICO ou COORDENADOR)",
           description: [
-            "Cadastra um novo usuário e sua credencial em transação:",
-            "- **ALUNO:** usa `matricula` (8 a 15 caracteres; não aceita SIAPE). `email` e `telefone` são opcionais.",
-            "- **PROFESSOR / TECNICO / COORDENADOR:** usam `siape` (6 a 7 dígitos numéricos; não aceita matrícula de aluno). `departamentoId`, `email` e `telefone` são opcionais.",
-            "- **COORDENADOR:** aceita opcionalmente `predioId`, `predioIds` ou `coordenacoes` para vincular o(s) prédio(s) sob sua coordenação.",
+            "Cadastra um novo usuário no sistema (o backend valida o perfil/tipoCredencial e define o nivelAcesso e role correspondentes de forma segura):",
+            "- **ALUNO:** informa `nome`, `role: 'ALUNO'`, `matricula` e `senha`. (`email` e `telefone` opcionais).",
+            "- **PROFESSOR / TECNICO:** informa `nome`, `role`, `siape` e `senha`. (`departamentoId`, `email` e `telefone` opcionais).",
+            "- **COORDENADOR:** informa `nome`, `role: 'COORDENADOR'`, `siape`, `senha` e `predioId`. (`numeroPortaria` opcional).",
           ].join("\n"),
           security: [],
-          parameters: [
-            {
-              name: "x-provision-key",
-              in: "header",
-              required: false,
-              description:
-                "Chave de provisionamento para cadastro de servidores quando `USER_PROVISION_KEY` estiver configurada no ambiente.",
-              schema: { type: "string" },
-            },
-          ],
           requestBody: {
             required: true,
             content: {
               "application/json": {
                 schema: { $ref: "#/components/schemas/CadastroUsuarioInput" },
+                examples: {
+                  cadastroAluno: {
+                    summary: "Cadastro de Aluno (Mínimo recomendado)",
+                    value: {
+                      nome: "Ana Clara Souza",
+                      role: "ALUNO",
+                      matricula: "20261001",
+                      senha: "SenhaSegura@123",
+                      email: "ana.souza@ifes.edu.br",
+                      telefone: "(27) 99999-0000",
+                    },
+                  },
+                  cadastroProfessor: {
+                    summary: "Cadastro de Professor",
+                    value: {
+                      nome: "Prof. Carlos Mendes",
+                      role: "PROFESSOR",
+                      siape: "1543210",
+                      senha: "SenhaSegura@123",
+                      email: "carlos.mendes@ifes.edu.br",
+                    },
+                  },
+                  cadastroTecnico: {
+                    summary: "Cadastro de Técnico Administrativo",
+                    value: {
+                      nome: "João Silva",
+                      role: "TECNICO",
+                      siape: "1654321",
+                      senha: "SenhaSegura@123",
+                      email: "joao.silva@ifes.edu.br",
+                    },
+                  },
+                  cadastroCoordenador: {
+                    summary: "Cadastro de Coordenador com Prédio",
+                    value: {
+                      nome: "Coord. Roberto Lima",
+                      role: "COORDENADOR",
+                      siape: "1765432",
+                      senha: "SenhaSegura@123",
+                      predioId: "64b7f0c2a1b2c3d4e5f60015",
+                      numeroPortaria: "PORTARIA-IFES-2026-01",
+                    },
+                  },
+                },
               },
             },
           },
@@ -1157,14 +1467,6 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             },
             "400": {
               description: "Dados de cadastro inválidos ou conflito entre papel e identificador (`VALIDACAO`).",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErroPadrao" },
-                },
-              },
-            },
-            "403": {
-              description: "Chave `x-provision-key` ausente ou inválida quando exigida pelo ambiente (`PERMISSAO_NEGADA`).",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErroPadrao" },
@@ -1187,13 +1489,33 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           tags: ["Usuários"],
           summary: "Cadastrar aluno (ALUNO)",
           description:
-            "Rota dedicada para cadastro de `ALUNO` (`MATRICULA_ALUNO`, `nivelAcesso = 1`). Exige `matricula` (ou `credencial.entrada` com formato de matrícula) e rejeita `siape`. `email` e `telefone` são opcionais.",
+            "Rota dedicada para cadastro de `ALUNO` (`MATRICULA_ALUNO`, `nivelAcesso = 1`). Exige `nome`, `matricula` e `senha`. Rejeita SIAPE. `email` e `telefone` são opcionais.",
           security: [],
           requestBody: {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/CadastroUsuarioInput" },
+                schema: { $ref: "#/components/schemas/CadastroAlunoInput" },
+                examples: {
+                  alunoMinimo: {
+                    summary: "Cadastro Mínimo de Aluno (Recomendado)",
+                    value: {
+                      nome: "Ana Clara Souza",
+                      matricula: "20261001",
+                      senha: "SenhaSegura@123",
+                    },
+                  },
+                  alunoCompleto: {
+                    summary: "Cadastro de Aluno com Contato",
+                    value: {
+                      nome: "Ana Clara Souza",
+                      matricula: "20261001",
+                      senha: "SenhaSegura@123",
+                      email: "ana.souza@ifes.edu.br",
+                      telefone: "(27) 99999-0000",
+                    },
+                  },
+                },
               },
             },
           },
@@ -1230,22 +1552,46 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           tags: ["Usuários"],
           summary: "Cadastrar servidor (PROFESSOR, TECNICO ou COORDENADOR)",
           description:
-            "Rota para cadastro de servidores (`PROFESSOR`, `TECNICO` ou `COORDENADOR`) utilizando `siape` (6 a 7 dígitos). Rejeita `ALUNO` e `matricula`.",
+            "Rota para cadastro de servidores (`PROFESSOR`, `TECNICO` ou `COORDENADOR`) utilizando `siape` (6 a 7 dígitos) e `senha`. Rejeita matrícula de aluno.",
           security: [],
-          parameters: [
-            {
-              name: "x-provision-key",
-              in: "header",
-              required: false,
-              description: "Chave de provisionamento quando `USER_PROVISION_KEY` estiver configurada.",
-              schema: { type: "string" },
-            },
-          ],
           requestBody: {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/CadastroUsuarioInput" },
+                schema: { $ref: "#/components/schemas/CadastroServidorInput" },
+                examples: {
+                  professor: {
+                    summary: "Cadastro de Professor",
+                    value: {
+                      nome: "Prof. Carlos Mendes",
+                      role: "PROFESSOR",
+                      siape: "1543210",
+                      senha: "SenhaSegura@123",
+                      email: "carlos.mendes@ifes.edu.br",
+                    },
+                  },
+                  tecnico: {
+                    summary: "Cadastro de Técnico",
+                    value: {
+                      nome: "João Silva",
+                      role: "TECNICO",
+                      siape: "1654321",
+                      senha: "SenhaSegura@123",
+                      email: "joao.silva@ifes.edu.br",
+                    },
+                  },
+                  coordenador: {
+                    summary: "Cadastro de Coordenador",
+                    value: {
+                      nome: "Coord. Roberto Lima",
+                      role: "COORDENADOR",
+                      siape: "1765432",
+                      senha: "SenhaSegura@123",
+                      predioId: "64b7f0c2a1b2c3d4e5f60015",
+                      numeroPortaria: "PORTARIA-IFES-2026-01",
+                    },
+                  },
+                },
               },
             },
           },
@@ -1260,14 +1606,6 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             },
             "400": {
               description: "Dados inválidos (`VALIDACAO`).",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErroPadrao" },
-                },
-              },
-            },
-            "403": {
-              description: "Provisionamento não autorizado (`PERMISSAO_NEGADA`).",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErroPadrao" },
@@ -1290,13 +1628,19 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           tags: ["Usuários"],
           summary: "Cadastrar professor (PROFESSOR)",
           description:
-            "Rota dedicada para cadastro de `PROFESSOR` (`SIAPE_DOCENTE`, `nivelAcesso = 3`). Exige `siape` de 6 a 7 dígitos e rejeita `matricula`.",
+            "Rota dedicada para cadastro de `PROFESSOR` (`SIAPE_DOCENTE`, `nivelAcesso = 3`). Exige `nome`, `siape` (6 a 7 dígitos) e `senha`. Rejeita matrícula de aluno.",
           security: [],
           requestBody: {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/CadastroUsuarioInput" },
+                schema: { $ref: "#/components/schemas/CadastroProfessorInput" },
+                example: {
+                  nome: "Prof. Carlos Mendes",
+                  siape: "1543210",
+                  senha: "SenhaSegura@123",
+                  email: "carlos.mendes@ifes.edu.br",
+                },
               },
             },
           },
@@ -1333,13 +1677,19 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           tags: ["Usuários"],
           summary: "Cadastrar técnico administrativo (TECNICO)",
           description:
-            "Rota dedicada para cadastro de `TECNICO` (`SIAPE_TECNICO`, `nivelAcesso = 2`). Exige `siape` de 6 a 7 dígitos e rejeita `matricula`.",
+            "Rota dedicada para cadastro de `TECNICO` (`SIAPE_TECNICO`, `nivelAcesso = 2`). Exige `nome`, `siape` (6 a 7 dígitos) e `senha`. Rejeita matrícula de aluno.",
           security: [],
           requestBody: {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/CadastroUsuarioInput" },
+                schema: { $ref: "#/components/schemas/CadastroTecnicoInput" },
+                example: {
+                  nome: "João Silva",
+                  siape: "1654321",
+                  senha: "SenhaSegura@123",
+                  email: "joao.silva@ifes.edu.br",
+                },
               },
             },
           },
@@ -1376,13 +1726,21 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           tags: ["Usuários"],
           summary: "Cadastrar coordenador (COORDENADOR)",
           description:
-            "Rota dedicada para cadastro de `COORDENADOR` (`SIAPE_DOCENTE`, `nivelAcesso = 4`). Exige `siape` de 6 a 7 dígitos, rejeita `matricula` e permite informar `predioId`, `predioIds` ou `coordenacoes` para vincular os prédios coordenados.",
+            "Rota dedicada para cadastro de `COORDENADOR` (`SIAPE_DOCENTE`, `nivelAcesso = 4`). Exige `nome`, `siape`, `senha` e `predioId` para vincular o prédio sob sua coordenação.",
           security: [],
           requestBody: {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/CadastroUsuarioInput" },
+                schema: { $ref: "#/components/schemas/CadastroCoordenadorInput" },
+                example: {
+                  nome: "Coord. Roberto Lima",
+                  siape: "1765432",
+                  senha: "SenhaSegura@123",
+                  predioId: "64b7f0c2a1b2c3d4e5f60015",
+                  numeroPortaria: "PORTARIA-IFES-2026-01",
+                  email: "roberto.lima@ifes.edu.br",
+                },
               },
             },
           },
@@ -1419,7 +1777,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           tags: ["Usuários"],
           summary: "Consultar perfil do usuário autenticado",
           description:
-            "Retorna os dados do usuário correspondente ao token JWT, incluindo `nivelAcesso`, `role`, vínculo de aluno/servidor e lotações de coordenação ativas com objetos `coordenador` e `predio`.",
+            "Retorna os dados do usuário correspondente ao token JWT, incluindo `nivelAcesso`, `role`, dados de aluno/servidor e lotações ativas.",
           security: [{ bearerAuth: [] }],
           responses: {
             "200": {
@@ -1462,7 +1820,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               in: "query",
               required: false,
               description: "Filtro parcial case-insensitive pelo nome do prédio (ex.: `Pedagógico`, `TI`).",
-              schema: { type: "string" },
+              schema: { type: "string", example: "TI" },
             },
             {
               name: "incluirSalas",
@@ -1645,7 +2003,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           tags: ["Prédios"],
           summary: "Atualizar prédio (Coordenador do prédio)",
           description:
-            "Atualiza parcialmente os dados de um prédio existente. Coordenadores com lotação em prédio(s) específico(s) só podem alterar seus próprios prédios coordenados.",
+            "Atualiza parcialmente os dados de um prédio existente. Coordenadores vinculados a prédio(s) específico(s) só podem alterar seus próprios prédios.",
           security: [{ bearerAuth: [] }],
           parameters: [{ $ref: "#/components/parameters/ObjectIdPathParam" }],
           requestBody: {
@@ -1782,14 +2140,14 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               in: "query",
               required: false,
               description: "Capacidade mínima (`>= 1`). Exclui salas com `capacidade: null`.",
-              schema: { type: "integer", minimum: 1 },
+              schema: { type: "integer", minimum: 1, example: 20 },
             },
             {
               name: "capacidadeMax",
               in: "query",
               required: false,
               description: "Capacidade máxima (`>= 1`). Exclui salas com `capacidade: null`.",
-              schema: { type: "integer", minimum: 1 },
+              schema: { type: "integer", minimum: 1, example: 50 },
             },
             {
               name: "apenasComCapacidade",
@@ -1812,6 +2170,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               schema: {
                 type: "string",
                 enum: ["SALA_AULA", "LABORATORIO", "AUDITORIO", "REUNIAO"],
+                example: "LABORATORIO",
               },
             },
             {
@@ -1857,7 +2216,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           tags: ["Salas"],
           summary: "Listar e filtrar salas",
           description:
-            "Busca salas em todo o catálogo aplicando filtros diretamente no MongoDB. Sempre inclui o objeto `predio` para desambiguar salas de mesmo nome em prédios distintos (ex.: `Lab. de Física` no `Prédio TI` e no `Complexo de Laoratório`).",
+            "Busca salas em todo o catálogo aplicando filtros diretamente no MongoDB. Sempre inclui o objeto `predio` para desambiguar salas de mesmo nome em prédios distintos.",
           security: [],
           parameters: [
             {
@@ -1872,28 +2231,28 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               in: "query",
               required: false,
               description: "Busca parcial case-insensitive pelo nome do prédio.",
-              schema: { type: "string" },
+              schema: { type: "string", example: "TI" },
             },
             {
               name: "nome",
               in: "query",
               required: false,
               description: "Busca parcial case-insensitive pelo nome da sala.",
-              schema: { type: "string" },
+              schema: { type: "string", example: "Lab. de Física" },
             },
             {
               name: "capacidadeMin",
               in: "query",
               required: false,
               description: "Capacidade mínima (`>= 1`). Exclui salas com `capacidade: null`.",
-              schema: { type: "integer", minimum: 1 },
+              schema: { type: "integer", minimum: 1, example: 20 },
             },
             {
               name: "capacidadeMax",
               in: "query",
               required: false,
               description: "Capacidade máxima (`>= 1`, `>= capacidadeMin`). Exclui salas com `capacidade: null`.",
-              schema: { type: "integer", minimum: 1 },
+              schema: { type: "integer", minimum: 1, example: 40 },
             },
             {
               name: "apenasComCapacidade",
@@ -1916,6 +2275,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               schema: {
                 type: "string",
                 enum: ["SALA_AULA", "LABORATORIO", "AUDITORIO", "REUNIAO"],
+                example: "LABORATORIO",
               },
             },
             {
@@ -2116,7 +2476,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           tags: ["Salas"],
           summary: "Remover sala (Coordenador do prédio)",
           description:
-            "Remove uma sala que não possua histórico de reservas. Se houver reservas vinculadas, retorna `422 REGRA_DE_NEGOCIO` orientando a inativação (`PATCH /salas/:id` com `{ \"ativa\": false }`).",
+            "Remove uma sala que não possua histórico de reservas. Se houver reservas vinculadas, retorna `422 REGRA_DE_NEGOCIO` orientando a inativação (`PATCH /salas/:id` com `{ 'ativa': false }`).",
           security: [{ bearerAuth: [] }],
           parameters: [{ $ref: "#/components/parameters/ObjectIdPathParam" }],
           responses: {
@@ -2209,6 +2569,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               schema: {
                 type: "string",
                 enum: ["PENDENTE_APROVACAO", "APROVADA", "AGENDADO", "REJEITADA", "CANCELADA", "CONCLUIDA"],
+                example: "AGENDADO",
               },
             },
             {
@@ -2216,7 +2577,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               in: "query",
               required: false,
               description: "Filtra reservas com início na data civil informada (`AAAA-MM-DD`).",
-              schema: { type: "string", format: "date", example: "2026-10-25" },
+              schema: { type: "string", format: "date", example: "2026-11-10" },
             },
           ],
           responses: {
@@ -2265,6 +2626,49 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             content: {
               "application/json": {
                 schema: { $ref: "#/components/schemas/CriarReservaInput" },
+                examples: {
+                  reservaProfessor: {
+                    summary: "Reserva Imediata de Professor (AGENDADO)",
+                    value: {
+                      salaId: "64b7f0c2a1b2c3d4e5f60111",
+                      dataHoraInicio: "2026-11-10T10:00:00-03:00",
+                      dataHoraFim: "2026-11-10T10:50:00-03:00",
+                      finalidade: "Aula prática de Banco de Dados",
+                      observacoes: "Necessário uso de projetor",
+                    },
+                  },
+                  reservaTecnico: {
+                    summary: "Reserva Imediata de Técnico (AGENDADO)",
+                    value: {
+                      salaId: "64b7f0c2a1b2c3d4e5f60111",
+                      dataHoraInicio: "2026-11-10T14:00:00-03:00",
+                      dataHoraFim: "2026-11-10T14:50:00-03:00",
+                      finalidade: "Manutenção preventiva dos equipamentos",
+                    },
+                  },
+                  reservaAluno: {
+                    summary: "Solicitação de Aluno com Responsável (PENDENTE_APROVACAO)",
+                    value: {
+                      salaId: "64b7f0c2a1b2c3d4e5f60111",
+                      dataHoraInicio: "2026-11-11T15:00:00-03:00",
+                      dataHoraFim: "2026-11-11T15:50:00-03:00",
+                      finalidade: "Grupo de estudos de Engenharia de Software",
+                      responsavelId: "64b7f0c2a1b2c3d4e5f60333",
+                    },
+                  },
+                  reservaCoordenadorRecorrente: {
+                    summary: "Série Semestral de Coordenador (APROVADA)",
+                    value: {
+                      salaId: "64b7f0c2a1b2c3d4e5f60111",
+                      dataHoraInicio: "2026-11-12T08:00:00-03:00",
+                      dataHoraFim: "2026-11-12T08:50:00-03:00",
+                      finalidade: "Aulas da disciplina de Sistemas Distribuídos",
+                      recorrencia: {
+                        tipo: "SEMESTRAL",
+                      },
+                    },
+                  },
+                },
               },
             },
           },
@@ -2362,7 +2766,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               name: "data",
               in: "query",
               required: false,
-              schema: { type: "string", format: "date" },
+              schema: { type: "string", format: "date", example: "2026-11-10" },
             },
           ],
           responses: {
@@ -2443,7 +2847,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               name: "data",
               in: "query",
               required: false,
-              schema: { type: "string", format: "date" },
+              schema: { type: "string", format: "date", example: "2026-11-10" },
             },
           ],
           responses: {

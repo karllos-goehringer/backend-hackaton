@@ -59,8 +59,7 @@ export class PrediosController {
   };
 
   semear = async (request: Request, response: Response) => {
-    const ator = obterAtor(request);
-    const resultado = await this.service.semearDadosIniciais(ator);
+    const resultado = await this.service.semearDadosIniciais();
     response.status(200).json(resultado);
   };
 }

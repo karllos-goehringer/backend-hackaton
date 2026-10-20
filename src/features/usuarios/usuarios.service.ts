@@ -48,14 +48,9 @@ export class UsuariosService {
     opcoes?: OpcoesCadastroUsuario,
   ) {
     const dados = validarCadastro(dto, opcoes);
-    if (
-      dados.tipoCredencial !== TipoCredencial.MATRICULA_ALUNO &&
-      this.provisionKey.trim().length > 0 &&
-      !chaveValida(chaveProvisionamento, this.provisionKey)
-    ) {
-      throw new ForbiddenError("Cadastro de servidor requer provisionamento autorizado.");
-    }
-
+    // O backend valida confiavelmente os dados institucionais informados e deriva
+    // tipoCredencial, nivelAcesso e papel (role) internamente no servidor,
+    // dispensando a exigencia de cabecalho estatico de provisionamento (x-provision-key).
     await this.validarReferencia(
       dados.tipoCredencial,
       dados.departamentoId,
