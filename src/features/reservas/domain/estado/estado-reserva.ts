@@ -63,7 +63,6 @@ class EstadoAprovada extends EstadoReservaBase {
     return StatusReserva.CANCELADA;
   }
 
-  /** Transicao prevista no dominio; o gatilho (job/endpoint) ainda nao foi definido. */
   override concluir(): StatusReserva {
     return StatusReserva.CONCLUIDA;
   }

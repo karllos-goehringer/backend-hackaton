@@ -47,7 +47,7 @@ export class SalasService {
     const predio = await predios.buscarResumoPorId(dados.predioId);
     if (!predio) throw new NotFoundError("Predio nao encontrado.");
 
-    await this.garantirEscopoPredioCoordenador(ator, dados.predioId);
+
 
     const duplicada = await salas.buscarPorPredioENome(dados.predioId, dados.nomeSala);
     if (duplicada) {
@@ -72,7 +72,7 @@ export class SalasService {
     const atual = await salas.buscarPorId(id);
     if (!atual) throw new NotFoundError("Sala nao encontrada.");
 
-    await this.garantirEscopoPredioCoordenador(ator, atual.predioId);
+
 
     const predioIdAlvo = dados.predioId ?? atual.predioId;
     const nomeSalaAlvo = dados.nomeSala ?? atual.nomeSala;
@@ -81,7 +81,7 @@ export class SalasService {
     if (dados.predioId && dados.predioId !== atual.predioId) {
       const novoPredio = await predios.buscarResumoPorId(dados.predioId);
       if (!novoPredio) throw new NotFoundError("Predio nao encontrado.");
-      await this.garantirEscopoPredioCoordenador(ator, dados.predioId);
+  
       nomePredioAlvo = novoPredio.nome;
     }
 
@@ -104,7 +104,7 @@ export class SalasService {
     const atual = await salas.buscarPorId(id);
     if (!atual) throw new NotFoundError("Sala nao encontrada.");
 
-    await this.garantirEscopoPredioCoordenador(ator, atual.predioId);
+
 
     const totalReservas = await salas.contarReservasPorSala(id);
     if (totalReservas > 0) {

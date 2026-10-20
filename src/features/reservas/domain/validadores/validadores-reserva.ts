@@ -1,6 +1,6 @@
 import { StatusReserva, TipoCredencial } from "@prisma/client";
 import { BusinessRuleError } from "../../../../shared/errors/app-error.js";
-import { dataCivil, partesLocais } from "../../../../shared/utils/data-hora.js";
+import { partesLocais } from "../../../../shared/utils/data-hora.js";
 import type { SalaParaReserva } from "../../../salas/salas.repository.js";
 import type { UsuariosRepository } from "../../../usuarios/usuarios.repository.js";
 import type { JanelaFuncionamento } from "../../reservas.config.js";
@@ -112,30 +112,59 @@ export class ValidadorAntecedencia12Horas extends ValidadorReserva {
   }
 }
 
-/** Passo 2.6 (por dia): Aluno e Tecnico podem ter no maximo 2 reservas agendadas para o mesmo dia civil. */
-export class ValidadorLimiteDiarioReservas extends ValidadorReserva {
-  static readonly LIMITE_DIARIO = 2;
+/**
+ * Passo 2.6: Aluno e Tecnico como solicitantes podem ter no maximo 2 reservas ativas
+ * simultaneamente, independentemente de quanto tempo passe, ate que a reserva seja concluida.
+ */
+export class ValidadorLimiteReservasAtivas extends ValidadorReserva {
+  static readonly LIMITE_ATIVAS = 2;
 
-  protected async executar({ politica, ator, ocorrencias, reservas }: ContextoValidacaoReserva): Promise<void> {
+  protected async executar({ politica, ator, ocorrencias, agora, reservas }: ContextoValidacaoReserva): Promise<void> {
     if (!politica.exigeQuota12Horas) return;
 
-    // Agrupar ocorrencias por data civil
-    const diasAfetados = new Set(ocorrencias.map((o) => dataCivil(o.inicio).toISOString()));
+    const reservasAtivas = await this.contarReservasAtivasNaoConcluidas(reservas, ator.id, agora);
 
-    for (const diaIso of diasAfetados) {
-      const inicioDia = new Date(diaIso);
-      const fimDia = new Date(inicioDia.getTime() + 24 * 60 * 60 * 1000);
-      const existentes = await reservas.contarPorSolicitanteNoDia(ator.id, inicioDia, fimDia);
-      const novasNoDia = ocorrencias.filter((o) => dataCivil(o.inicio).toISOString() === diaIso).length;
-      if (existentes + novasNoDia > ValidadorLimiteDiarioReservas.LIMITE_DIARIO) {
-        throw new BusinessRuleError(
-          `Alunos e tecnicos podem ter no maximo ${ValidadorLimiteDiarioReservas.LIMITE_DIARIO} reservas por dia.`,
-          { dia: diaIso, reservasExistentes: existentes },
-        );
-      }
+    if (reservasAtivas + ocorrencias.length > ValidadorLimiteReservasAtivas.LIMITE_ATIVAS) {
+      throw new BusinessRuleError(
+        `Alunos e tecnicos podem ter no maximo ${ValidadorLimiteReservasAtivas.LIMITE_ATIVAS} reservas ativas simultaneamente ate que sejam concluidas.`,
+        { reservasAtivas },
+      );
     }
   }
+
+  private async contarReservasAtivasNaoConcluidas(
+    reservas: ReservasRepository,
+    solicitanteId: string,
+    agora: Date,
+  ): Promise<number> {
+    const repo = reservas as ReservasRepository & {
+      contarAtivasPorSolicitante?: (solicitanteId: string, agora: Date) => Promise<number>;
+      contarAtivasPorSolicitanteDesde?: (solicitanteId: string, desde: Date) => Promise<number>;
+    };
+
+    if (typeof repo.contarAtivasPorSolicitante === "function") {
+      return repo.contarAtivasPorSolicitante(solicitanteId, agora);
+    }
+
+    if (typeof repo.contarAtivasPorSolicitanteDesde === "function") {
+      // Passa Epoca (Date(0)) caso o repositorio legado filtre por data de criacao >= desde,
+      // garantindo contagem independente de quanto tempo passou desde a solicitacao.
+      return repo.contarAtivasPorSolicitanteDesde(solicitanteId, new Date(0));
+    }
+
+    return reservas.contarPorSolicitanteEStatusDesde(
+      solicitanteId,
+      StatusReserva.PENDENTE_APROVACAO,
+      new Date(0),
+    );
+  }
 }
+
+/** Alias mantido para compatibilidade com importacoes existentes. */
+export {
+  ValidadorLimiteReservasAtivas as ValidadorQuota12HorasAluno,
+  ValidadorLimiteReservasAtivas as ValidadorLimiteDiarioReservas,
+};
 
 /** Passo 2.5: Aluno nunca pode ser definido como responsavel de nenhuma reserva. */
 export class ValidadorResponsavelNaoAluno extends ValidadorReserva {
@@ -146,33 +175,6 @@ export class ValidadorResponsavelNaoAluno extends ValidadorReserva {
     }
     if (responsavel && responsavel.tipoCredencial === TipoCredencial.MATRICULA_ALUNO) {
       throw new BusinessRuleError("Alunos nao podem ser definidos como responsaveis de reservas.");
-    }
-  }
-}
-
-/**
- * Passo 2.6 (janela de 12h, independente do dia marcado):
- * Aluno e Tecnico podem solicitar no maximo 2 reservas ativas a cada janela movel de 12 horas.
- */
-export class ValidadorQuota12HorasAluno extends ValidadorReserva {
-  static readonly JANELA_MS = 12 * 60 * 60 * 1000;
-  static readonly LIMITE_JANELA_12H = 2;
-
-  protected async executar({ politica, ator, ocorrencias, agora, reservas }: ContextoValidacaoReserva): Promise<void> {
-    if (!politica.exigeQuota12Horas) return;
-
-    const desde = new Date(agora.getTime() - ValidadorQuota12HorasAluno.JANELA_MS);
-
-    const criadasNaJanela =
-      typeof reservas.contarAtivasPorSolicitanteDesde === "function"
-        ? await reservas.contarAtivasPorSolicitanteDesde(ator.id, desde)
-        : await reservas.contarPorSolicitanteEStatusDesde(ator.id, StatusReserva.PENDENTE_APROVACAO, desde);
-
-    if (criadasNaJanela + ocorrencias.length > ValidadorQuota12HorasAluno.LIMITE_JANELA_12H) {
-      throw new BusinessRuleError(
-        `Alunos e tecnicos podem solicitar no maximo ${ValidadorQuota12HorasAluno.LIMITE_JANELA_12H} reservas a cada 12 horas.`,
-        { reservasNasUltimas12h: criadasNaJanela },
-      );
     }
   }
 }
@@ -209,14 +211,13 @@ export class ValidadorConflitoSala extends ValidadorReserva {
   }
 }
 
-/** Pipeline do documento: Horario -> Duracao50Min -> Antecedencia12h -> LimiteDiario -> Quota12hAluno -> ResponsavelNaoAluno -> EscopoDelegacao -> ConflitoSala. */
+/** Pipeline do documento: Horario -> Duracao50Min -> Antecedencia12h -> LimiteReservasAtivas -> ResponsavelNaoAluno -> EscopoDelegacao -> ConflitoSala. */
 export function criarPipelineValidacaoReserva(janela: JanelaFuncionamento | null): ValidadorReserva {
   const inicio = new ValidadorHorarioFuncionamento(janela);
   inicio
     .encadear(new ValidadorDuracao50Minutos())
     .encadear(new ValidadorAntecedencia12Horas())
-    .encadear(new ValidadorLimiteDiarioReservas())
-    .encadear(new ValidadorQuota12HorasAluno())
+    .encadear(new ValidadorLimiteReservasAtivas())
     .encadear(new ValidadorResponsavelNaoAluno())
     .encadear(new ValidadorEscopoDelegacao())
     .encadear(new ValidadorConflitoSala());

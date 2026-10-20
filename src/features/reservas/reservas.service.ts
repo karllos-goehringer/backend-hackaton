@@ -68,8 +68,11 @@ export class ReservasService implements IReservavel {
   }
 
   async listar(filtros: FiltrosListagemReservas = {}): Promise<ComDiaDaSemana<ReservaDetalhada>[]> {
-    const reservas = await new ReservasRepository(this.prisma).listarDetalhes(filtros);
-    return reservas.map(anexarDiaDaSemana);
+    const agora = this.relogio();
+    const repo = new ReservasRepository(this.prisma);
+    await repo.concluirReservasAprovadasAlcancadas(agora, filtros.solicitanteId);
+    const reservas = await repo.listarDetalhes(filtros);
+    return reservas.map((r) => anexarDiaDaSemana(normalizarConcluidaAluno(r, agora)));
   }
 
   /** Lista exclusivamente as reservas criadas/solicitadas pelo usuario autenticado (`solicitanteId = ator.id`). */
@@ -95,9 +98,12 @@ export class ReservasService implements IReservavel {
   }
 
   async buscarPorId(reservaId: string): Promise<ComDiaDaSemana<ReservaDetalhada>> {
-    const reserva = await new ReservasRepository(this.prisma).buscarDetalhesPorId(reservaId);
+    const agora = this.relogio();
+    const repo = new ReservasRepository(this.prisma);
+    await repo.concluirReservasAprovadasAlcancadas(agora);
+    const reserva = await repo.buscarDetalhesPorId(reservaId);
     if (!reserva) throw new NotFoundError("Reserva nao encontrada.");
-    return anexarDiaDaSemana(reserva);
+    return anexarDiaDaSemana(normalizarConcluidaAluno(reserva, agora));
   }
 
   async criar(ator: AtorReserva, comando: NovaReservaCommand): Promise<ResultadoCriacaoReserva> {
@@ -236,7 +242,7 @@ export class ReservasService implements IReservavel {
 
     const politica = await this.resolvedor.resolver(ator, reserva);
     if (!politica.podeAprovarOuRejeitar()) {
-      throw new ForbiddenError("Apenas o responsavel designado ou o coordenador do predio da sala pode aprovar esta reserva.");
+      throw new ForbiddenError("Apenas o responsavel designado ou um coordenador pode aprovar esta reserva.");
     }
 
     this.garantirSemConflitoDePropriedadeCoordenador(ator, reserva, "aprovar");
@@ -346,7 +352,7 @@ export class ReservasService implements IReservavel {
     const politica = await this.resolvedor.resolver(ator, reserva);
     if (!politica.podeAprovarOuRejeitar()) {
       throw new ForbiddenError(
-        "Apenas o responsavel designado ou o coordenador do predio da sala pode rejeitar esta reserva.",
+        "Apenas o responsavel designado ou um coordenador pode rejeitar esta reserva.",
       );
     }
 
@@ -389,6 +395,20 @@ export class ReservasService implements IReservavel {
     if (!reserva) throw new NotFoundError("Reserva nao encontrada.");
     return anexarDiaDaSemana(reserva);
   }
+}
+
+function normalizarConcluidaAluno(reserva: ReservaDetalhada, agora: Date): ReservaDetalhada {
+  if (
+    reserva.status === StatusReserva.APROVADA &&
+    reserva.solicitante?.tipoCredencial === TipoCredencial.MATRICULA_ALUNO &&
+    reserva.dataHoraInicio.getTime() <= agora.getTime()
+  ) {
+    return {
+      ...reserva,
+      status: estadoDaReserva(reserva.status).concluir(),
+    };
+  }
+  return reserva;
 }
 
 function temRecorrencia(comando: NovaReservaCommand): comando is NovaReservaCommand & { recorrencia: RegraRecorrencia } {

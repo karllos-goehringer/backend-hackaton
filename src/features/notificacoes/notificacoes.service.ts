@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import {
   TipoNotificacao,
   type NotificacaoCancelamento,
@@ -53,13 +54,35 @@ export class NotificacoesService {
     await Promise.all([...this.observadores].map((observador) => observador.atualizar(notificacao)));
   }
 
-  async notificarSolicitacaoCancelamento(notificacao: NotificacaoCancelamento): Promise<void> {
+  async notificarSolicitacaoCancelamento(notificacao: NotificacaoCancelamento): Promise<NotificacaoCancelamento> {
+    if (!notificacao.id) {
+      notificacao.id = randomBytes(12).toString("hex");
+    }
+    if (!notificacao.status) {
+      notificacao.status = "PENDENTE";
+    }
     this.pendentes.push(notificacao);
     console.log(
       `[NOTIFICACAO] Solicitacao de cancelamento para reserva ${notificacao.reservaId} ` +
       `solicitada por ${notificacao.solicitadoPorId} encaminhada ao coordenador ` +
       `(departamento: ${notificacao.departamentoId ?? "N/A"}).`,
     );
+    return notificacao;
+  }
+
+  buscarSolicitacaoPendente(idOuReservaId: string): NotificacaoCancelamento | undefined {
+    return this.pendentes.find(
+      (item) => item.id === idOuReservaId || item.reservaId === idOuReservaId,
+    );
+  }
+
+  removerSolicitacaoPendente(idOuReservaId: string): NotificacaoCancelamento | undefined {
+    const idx = this.pendentes.findIndex(
+      (item) => item.id === idOuReservaId || item.reservaId === idOuReservaId,
+    );
+    if (idx === -1) return undefined;
+    const [removida] = this.pendentes.splice(idx, 1);
+    return removida;
   }
 
   async notificarEncaminhamentoReserva(notificacao: NotificacaoEncaminhamentoReserva): Promise<void> {

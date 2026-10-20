@@ -1,6 +1,7 @@
 import express from "express";
 import { criarModuloAutenticacao } from "./features/autenticacao/autenticacao.module.js";
 import { criarModuloCancelamentos } from "./features/cancelamentos/cancelamento.module.js";
+import { criarModuloCoordenacao } from "./features/coordenacao/coordenacao.module.js";
 import { criarModuloPredios } from "./features/predios/predios.module.js";
 import { criarModuloReservas } from "./features/reservas/reservas.module.js";
 import { criarModuloSalas } from "./features/salas/salas.module.js";
@@ -22,6 +23,7 @@ app.get("/servidores", (request, response) => {
 	const query = request.url.includes("?") ? request.url.slice(request.url.indexOf("?")) : "";
 	response.redirect(307, `/usuarios/servidores${query}`);
 });
+app.use("/coordenacoes", criarModuloCoordenacao());
 app.use("/autenticacao", criarModuloAutenticacao());
 app.use("/predios", criarModuloPredios());
 app.use("/salas", criarModuloSalas());

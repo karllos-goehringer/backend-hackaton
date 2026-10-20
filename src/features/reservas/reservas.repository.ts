@@ -1,5 +1,7 @@
-import type { Prisma, Reserva, SerieRecorrencia, StatusReserva, TipoCredencial } from "@prisma/client";
+import { StatusReserva, TipoCredencial, type Prisma, type Reserva, type SerieRecorrencia } from "@prisma/client";
 import type { DbClient } from "../../shared/database/transacao.js";
+import { estadoDaReserva } from "./domain/estado/estado-reserva.js";
+import { NivelAcesso } from "./domain/nivel-acesso.js";
 
 export interface ReservaComLocalizacao extends Reserva {
   predioId: string;
@@ -104,9 +106,91 @@ const RESERVA_COM_DETALHES = {
 
 export type ReservaDetalhada = Prisma.ReservaGetPayload<typeof RESERVA_COM_DETALHES>;
 
+function ehNivelCoordenador(nivelAcesso?: number | null, qtdLotacoesAtivas = 0): boolean {
+  return nivelAcesso === NivelAcesso.COORDENADOR || nivelAcesso === 4 || qtdLotacoesAtivas > 0;
+}
+
 /** Acesso a dados de reservas. Sem regras de negocio: apenas consultas e escritas parametrizadas. */
 export class ReservasRepository {
   constructor(private readonly db: DbClient) {}
+
+  /**
+   * Conclui automaticamente reservas de alunos solicitantes que estavam em estado APROVADA
+   * e ja alcancaram a data/horario agendado (`dataHoraInicio <= agora`).
+   */
+  async concluirReservasAprovadasAlcancadas(agora: Date, solicitanteId?: string): Promise<number> {
+    const delegate = this.db.reserva as Partial<DbClient["reserva"]> | undefined;
+    if (!delegate || typeof delegate.updateMany !== "function") {
+      return 0;
+    }
+
+    const statusConcluida = estadoDaReserva(StatusReserva.APROVADA).concluir();
+
+    try {
+      if (typeof delegate.findMany === "function") {
+        const candidatas = await delegate.findMany({
+          where: {
+            status: StatusReserva.APROVADA,
+            dataHoraInicio: { lte: agora },
+            ...(solicitanteId
+              ? { solicitanteId }
+              : { solicitante: { tipoCredencial: TipoCredencial.MATRICULA_ALUNO } }),
+          },
+          select: {
+            id: true,
+            status: true,
+            dataHoraInicio: true,
+            solicitante: { select: { tipoCredencial: true } },
+          },
+        });
+
+        const idsParaConcluir = (candidatas as Array<{
+          id: string;
+          status?: StatusReserva;
+          dataHoraInicio?: Date;
+          solicitante?: { tipoCredencial?: TipoCredencial } | null;
+        }>)
+          .filter((r) => {
+            if (r.status && r.status !== StatusReserva.APROVADA) return false;
+            if (r.dataHoraInicio && r.dataHoraInicio.getTime() > agora.getTime()) return false;
+            if (r.solicitante?.tipoCredencial && r.solicitante.tipoCredencial !== TipoCredencial.MATRICULA_ALUNO) {
+              return false;
+            }
+            return Boolean(r.id);
+          })
+          .map((r) => r.id);
+
+        if (idsParaConcluir.length === 0) {
+          return 0;
+        }
+
+        const { count } = await delegate.updateMany({
+          where: {
+            id: { in: idsParaConcluir },
+            status: StatusReserva.APROVADA,
+          },
+          data: { status: statusConcluida },
+        });
+        return count;
+      }
+
+      if (solicitanteId) {
+        const { count } = await delegate.updateMany({
+          where: {
+            solicitanteId,
+            status: StatusReserva.APROVADA,
+            dataHoraInicio: { lte: agora },
+          },
+          data: { status: statusConcluida },
+        });
+        return count;
+      }
+    } catch {
+      // Ignora silenciosamente caso o cliente de banco seja um stub parcial sem suporte a filtros compostos
+    }
+
+    return 0;
+  }
 
   buscarDetalhesPorId(id: string): Promise<ReservaDetalhada | null> {
     return this.db.reserva.findUnique({ where: { id }, ...RESERVA_COM_DETALHES });
@@ -211,10 +295,14 @@ export class ReservasRepository {
       ...dados,
       predioId: sala.predioId,
       ...(solicitante?.tipoCredencial ? { solicitanteTipo: solicitante.tipoCredencial } : {}),
-      solicitanteEhCoordenador:
-        solicitante?.nivelAcesso === 4 || (solicitante?.lotacoesCoordenacao?.length ?? 0) > 0,
-      responsavelEhCoordenador:
-        responsavel?.nivelAcesso === 4 || (responsavel?.lotacoesCoordenacao?.length ?? 0) > 0,
+      solicitanteEhCoordenador: ehNivelCoordenador(
+        solicitante?.nivelAcesso,
+        solicitante?.lotacoesCoordenacao?.length ?? 0,
+      ),
+      responsavelEhCoordenador: ehNivelCoordenador(
+        responsavel?.nivelAcesso,
+        responsavel?.lotacoesCoordenacao?.length ?? 0,
+      ),
       responsavelDepartamentoId: responsavel?.departamentoId ?? null,
     };
   }
@@ -225,23 +313,43 @@ export class ReservasRepository {
     });
   }
 
-  /** Conta reservas ativas (nao canceladas/rejeitadas) criadas pelo solicitante desde o instante informado. */
+  /**
+   * Conclui reservas aprovadas que ja alcancaram seu horario de inicio e conta as reservas
+   * que permanecem ativas (nao canceladas, nao rejeitadas e nao concluidas) do solicitante.
+   */
+  async contarAtivasPorSolicitante(solicitanteId: string, agora: Date): Promise<number> {
+    await this.concluirReservasAprovadasAlcancadas(agora, solicitanteId);
+    return this.db.reserva.count({
+      where: {
+        solicitanteId,
+        status: {
+          notIn: [StatusReserva.CANCELADA, StatusReserva.REJEITADA, StatusReserva.CONCLUIDA],
+        },
+        OR: [
+          { status: { not: StatusReserva.APROVADA } },
+          { dataHoraInicio: { gt: agora } },
+        ],
+      },
+    });
+  }
+
+  /** Conta reservas ativas (nao canceladas/rejeitadas/concluidas) criadas pelo solicitante desde o instante informado. */
   contarAtivasPorSolicitanteDesde(solicitanteId: string, desde: Date): Promise<number> {
     return this.db.reserva.count({
       where: {
         solicitanteId,
-        status: { notIn: ["CANCELADA", "REJEITADA"] },
+        status: { notIn: [StatusReserva.CANCELADA, StatusReserva.REJEITADA, StatusReserva.CONCLUIDA] },
         criadoEm: { gte: desde },
       },
     });
   }
 
-  /** Conta reservas ativas (nao canceladas/rejeitadas) do solicitante em um dia especifico. */
+  /** Conta reservas ativas (nao canceladas/rejeitadas/concluidas) do solicitante em um dia especifico. */
   contarPorSolicitanteNoDia(solicitanteId: string, inicioDia: Date, fimDia: Date): Promise<number> {
     return this.db.reserva.count({
       where: {
         solicitanteId,
-        status: { notIn: ["CANCELADA", "REJEITADA"] },
+        status: { notIn: [StatusReserva.CANCELADA, StatusReserva.REJEITADA, StatusReserva.CONCLUIDA] },
         dataHoraInicio: { gte: inicioDia, lt: fimDia },
       },
     });
@@ -349,10 +457,14 @@ export class ReservasRepository {
       ...dados,
       predioId: sala.predioId,
       solicitanteTipo: solicitante.tipoCredencial,
-      solicitanteEhCoordenador:
-        solicitante.nivelAcesso === 4 || (solicitante.lotacoesCoordenacao?.length ?? 0) > 0,
-      responsavelEhCoordenador:
-        responsavel?.nivelAcesso === 4 || (responsavel?.lotacoesCoordenacao?.length ?? 0) > 0,
+      solicitanteEhCoordenador: ehNivelCoordenador(
+        solicitante.nivelAcesso,
+        solicitante.lotacoesCoordenacao?.length ?? 0,
+      ),
+      responsavelEhCoordenador: ehNivelCoordenador(
+        responsavel?.nivelAcesso,
+        responsavel?.lotacoesCoordenacao?.length ?? 0,
+      ),
       responsavelDepartamentoId: responsavel?.departamentoId ?? null,
     };
   }

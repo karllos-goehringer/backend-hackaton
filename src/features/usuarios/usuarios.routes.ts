@@ -16,5 +16,7 @@ export function criarUsuariosRouter(controller: UsuariosController, autenticar: 
   router.get("/coordenadores", controller.listarCoordenadores);
   router.get("/departamentos-elegiveis", controller.listarDepartamentosElegiveis);
   router.get("/me", autenticar, controller.meuPerfil);
+  router.patch("/:id/promover-coordenador", autenticar, controller.promoverCoordenador);
+  router.post("/:id/promover-coordenador", autenticar, controller.promoverCoordenador);
   return router;
 }

@@ -103,7 +103,7 @@ export class PoliticaTecnicoStrategy extends PoliticaSemPrivilegios {
   }
 }
 
-/** Aplicada somente quando o docente tem lotacao ativa sobre o Predio da sala. */
+/** Aplicada para usuarios com perfil de Coordenador (escopo institucional, sem separacao por predio). */
 export class PoliticaCoordenadorStrategy implements PoliticaReservaStrategy {
   readonly nivel = NivelAcesso.COORDENADOR;
   readonly exigeQuota12Horas = false;
