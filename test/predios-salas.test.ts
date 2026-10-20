@@ -15,6 +15,7 @@ import { PrediosService } from "../src/features/predios/predios.service.js";
 import { validarCriacaoPredio, validarFiltrosPredios } from "../src/features/predios/predios.validation.js";
 import { DADOS_INICIAIS_PREDIOS_SALAS } from "../src/features/predios/seed/dados-iniciais-predios-salas.js";
 import { semearPrediosESalasIniciais } from "../src/features/predios/seed/seed-predios-salas.js";
+import { semearDepartamentosIniciais } from "../src/features/usuarios/seed/seed-departamentos.js";
 import { GeradorRecorrencia } from "../src/features/reservas/domain/fabrica/gerador-recorrencia.js";
 import { ReservaFactory } from "../src/features/reservas/domain/fabrica/reserva.factory.js";
 import { NivelAcesso } from "../src/features/reservas/domain/nivel-acesso.js";
@@ -835,6 +836,7 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
     const usuariosMem = new Map<string, any>();
     const lotacoesMem: any[] = [];
     const predioTiId = "64b7f0c2a1b2c3d4e5f60015";
+    const depTiId = "64b7f0c2a1b2c3d4e5f60103";
     let userSeq = 100;
 
     const prismaUsuarios = {
@@ -842,6 +844,12 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
       predio: {
         findUnique: async ({ where }: any) =>
           where.id === predioTiId ? { id: predioTiId, nome: "Prédio TI", campusId: null } : null,
+      },
+      departamento: {
+        findUnique: async ({ where }: any) =>
+          where.id === depTiId
+            ? { id: depTiId, nome: "Coordenadoria de Tecnologia da Informação" }
+            : null,
       },
       usuario: {
         findFirst: async ({ where }: any) => {
@@ -933,11 +941,27 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
       (err: unknown) => err instanceof ValidationError,
     );
 
-    // 3. Professor, Tecnico e Coordenador com SIAPE e rejeicao de matricula
+    // 3. Servidor sem departamentoId e obrigatoriamente rejeitado
+    await assert.rejects(
+      async () =>
+        usuariosService.cadastrar(
+          {
+            nome: "Professor Sem Departamento",
+            siape: "1543210",
+            credencial: { tipoEntrada: TipoEntrada.LOCAL, entrada: "1543210", senha: "SenhaProf@123" },
+          },
+          undefined,
+          { exigirPapel: "PROFESSOR" },
+        ),
+      (err: unknown) => err instanceof ValidationError,
+    );
+
+    // 4. Professor, Tecnico e Coordenador com SIAPE e departamentoId obrigatorio
     const profCriado = await usuariosService.cadastrar(
       {
         nome: "Professora Maria",
         siape: "1543210",
+        departamentoId: depTiId,
         credencial: { tipoEntrada: TipoEntrada.LOCAL, entrada: "1543210", senha: "SenhaProf@123" },
       },
       undefined,
@@ -950,6 +974,7 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
       {
         nome: "Tecnico Joao",
         siape: "1654321",
+        departamentoId: depTiId,
         credencial: { tipoEntrada: TipoEntrada.LOCAL, entrada: "1654321", senha: "SenhaTec@123" },
       },
       undefined,
@@ -963,6 +988,7 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
         nome: "Coordenador Carlos",
         siape: "1765432",
         predioId: predioTiId,
+        departamentoId: depTiId,
         credencial: { tipoEntrada: TipoEntrada.LOCAL, entrada: "1765432", senha: "SenhaCoord@123" },
       },
       undefined,
@@ -995,8 +1021,28 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
       nome: "Prof. Sem Header",
       siape: "1987654",
       senha: "SenhaSegura@123",
+      departamentoId: depTiId,
       role: "PROFESSOR",
     });
+
+    // 5. Seed idempotente de departamentos
+    const deptosMem = new Map<string, any>();
+    const prismaDeptos = {
+      departamento: {
+        findUnique: async ({ where }: any) =>
+          [...deptosMem.values()].find((d) => d.nome === where.nome) ?? null,
+        create: async ({ data }: any) => {
+          deptosMem.set(data.id, data);
+          return data;
+        },
+      },
+    } as any;
+    const resSeed1 = await semearDepartamentosIniciais(prismaDeptos);
+    assert.equal(resSeed1.criados, 37);
+    assert.equal(resSeed1.processados, 37);
+    const resSeed2 = await semearDepartamentosIniciais(prismaDeptos);
+    assert.equal(resSeed2.criados, 0);
+    assert.equal(resSeed2.existentes, 37);
     assert.equal(profSemHeader.nivelAcesso, NivelAcesso.PROFESSOR);
     assert.equal(profSemHeader.role, "PROFESSOR");
     assert.equal(profSemHeader.tipoCredencial, TipoCredencial.SIAPE_DOCENTE);

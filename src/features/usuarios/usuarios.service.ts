@@ -17,7 +17,6 @@ const CUSTO_HASH = 12;
 export interface DependenciasUsuariosService {
   prisma: PrismaClient;
   jwtSecret?: string;
-  provisionKey?: string;
 }
 
 export interface OpcoesCadastroUsuario {
@@ -30,27 +29,20 @@ export interface OpcoesCadastroUsuario {
 export class UsuariosService {
   private readonly prisma: PrismaClient;
   private readonly jwtSecret: string;
-  private readonly provisionKey: string;
 
   constructor({
     prisma,
     jwtSecret,
-    provisionKey = process.env.USER_PROVISION_KEY,
   }: DependenciasUsuariosService) {
     this.prisma = prisma;
     this.jwtSecret = jwtSecret ?? "";
-    this.provisionKey = provisionKey ?? "";
   }
 
   async cadastrar(
     dto: CadastroUsuarioDTO,
-    chaveProvisionamento?: string,
     opcoes?: OpcoesCadastroUsuario,
   ) {
     const dados = validarCadastro(dto, opcoes);
-    // O backend valida confiavelmente os dados institucionais informados e deriva
-    // tipoCredencial, nivelAcesso e papel (role) internamente no servidor,
-    // dispensando a exigencia de cabecalho estatico de provisionamento (x-provision-key).
     await this.validarReferencia(
       dados.tipoCredencial,
       dados.departamentoId,
@@ -255,7 +247,10 @@ export class UsuariosService {
     departamentoId: string | undefined,
     coordenacoes: Array<{ predioId: string }> = [],
   ): Promise<void> {
-    if (tipo !== TipoCredencial.MATRICULA_ALUNO && departamentoId) {
+    if (tipo !== TipoCredencial.MATRICULA_ALUNO) {
+      if (!departamentoId) {
+        throw new ValidationError("departamentoId e obrigatorio para cadastro de servidores (PROFESSOR, TECNICO ou COORDENADOR).");
+      }
       const existe = await this.prisma.departamento.findUnique({ where: { id: departamentoId }, select: { id: true } });
       if (!existe) throw new ValidationError("O departamento informado nao existe.");
     }
@@ -427,6 +422,9 @@ function validarCadastro(dto: CadastroUsuarioDTO, opcoes?: OpcoesCadastroUsuario
   // Papeis de servidor: PROFESSOR, TECNICO ou COORDENADOR
   if (matriculaInformada !== undefined) {
     throw new ValidationError("Servidor (PROFESSOR, TECNICO ou COORDENADOR) deve ser cadastrado com SIAPE e nao pode utilizar matricula de aluno.");
+  }
+  if (!departamentoId) {
+    throw new ValidationError("departamentoId e obrigatorio para cadastro de servidores (PROFESSOR, TECNICO ou COORDENADOR).");
   }
   if (papel !== "COORDENADOR" && coordenacoes.length > 0) {
     throw new ValidationError("Apenas usuarios com papel COORDENADOR podem receber lotacoes de coordenacao no cadastro.");
