@@ -14,26 +14,6 @@ import { UsuariosRepository } from "./usuarios.repository.js";
 
 const CUSTO_HASH = 12;
 
-/**
- * Regra defensavel de formato institucional IFES:
- * - SIAPE (PROFESSOR, TECNICO, COORDENADOR): 6 a 7 digitos numericos (nao zerados).
- * - Matricula (ALUNO): 8 a 15 caracteres (numericos de 8 a 15 digitos ou formato alfanumerico
- *   iniciado pelo ano letivo YYYY + 4 a 11 caracteres alfanumericos, ex.: 20261001, 20241INFO0012).
- * Isso impede uso cruzado entre matricula de aluno e SIAPE de servidor.
- */
-const REGEX_SIAPE = /^(?!0+$)\d{6,7}$/;
-const REGEX_MATRICULA_NUMERICA = /^(?!0+$)\d{8,15}$/;
-const REGEX_MATRICULA_ALFANUMERICA = /^(19|20)\d{2}[A-Z0-9]{4,11}$/i;
-
-export function ehSiapeValido(valor: string): boolean {
-  return REGEX_SIAPE.test(valor);
-}
-
-export function ehMatriculaAlunoValida(valor: string): boolean {
-  if (REGEX_SIAPE.test(valor)) return false;
-  return REGEX_MATRICULA_NUMERICA.test(valor) || REGEX_MATRICULA_ALFANUMERICA.test(valor);
-}
-
 export interface DependenciasUsuariosService {
   prisma: PrismaClient;
   jwtSecret?: string;
@@ -434,11 +414,6 @@ function validarCadastro(dto: CadastroUsuarioDTO, opcoes?: OpcoesCadastroUsuario
     if (!codigoLogin) {
       throw new ValidationError("Matricula do aluno e obrigatoria.");
     }
-    if (!ehMatriculaAlunoValida(codigoLogin)) {
-      throw new ValidationError(
-        "Matricula de aluno invalida. Informe uma matricula valida (8 a 15 caracteres numericos ou alfanumericos iniciados pelo ano; SIAPE de 6 a 7 digitos nao e aceito).",
-      );
-    }
 
     return {
       uuid: dto.uuid,
@@ -472,11 +447,6 @@ function validarCadastro(dto: CadastroUsuarioDTO, opcoes?: OpcoesCadastroUsuario
   const codigoLogin = siapeInformado || entradaCredencial;
   if (!codigoLogin) {
     throw new ValidationError("SIAPE e obrigatorio para cadastro de PROFESSOR, TECNICO ou COORDENADOR.");
-  }
-  if (!ehSiapeValido(codigoLogin)) {
-    throw new ValidationError(
-      "SIAPE invalido. Informe um SIAPE numerico de 6 a 7 digitos (matricula de aluno nao e aceita para servidor/coordenador).",
-    );
   }
 
   const tipoCredencial =
