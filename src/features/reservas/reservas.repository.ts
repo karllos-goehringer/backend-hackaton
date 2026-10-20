@@ -4,6 +4,10 @@ import type { DbClient } from "../../shared/database/transacao.js";
 export interface ReservaComLocalizacao extends Reserva {
   predioId: string;
   setorId: string | null;
+  solicitanteTipo?: TipoCredencial;
+  solicitanteEhCoordenador?: boolean;
+  responsavelEhCoordenador?: boolean;
+  responsavelDepartamentoId?: string | null;
 }
 
 export interface IntervaloReservado {
@@ -32,6 +36,7 @@ const RESERVA_COM_DETALHES = {
     sala: {
       select: {
         id: true,
+        predioId: true,
         codigo: true,
         numSala: true,
         nomeSala: true,
@@ -43,6 +48,8 @@ const RESERVA_COM_DETALHES = {
           select: {
             id: true,
             nome: true,
+            campusId: true,
+            setorId: true,
             endereco: true,
             campus: { select: { id: true, nome: true, sigla: true } },
             setor: { select: { id: true, nome: true, sigla: true } },
@@ -55,7 +62,11 @@ const RESERVA_COM_DETALHES = {
       select: {
         id: true,
         nome: true,
+        emailInstitucional: true,
+        telefone: true,
+        codigoLogin: true,
         tipoCredencial: true,
+        nivelAcesso: true,
         curso: { select: { id: true, nome: true } },
         departamento: { select: { id: true, nome: true } },
       },
@@ -64,13 +75,24 @@ const RESERVA_COM_DETALHES = {
       select: {
         id: true,
         nome: true,
+        emailInstitucional: true,
+        telefone: true,
+        codigoLogin: true,
         tipoCredencial: true,
+        nivelAcesso: true,
         curso: { select: { id: true, nome: true } },
         departamento: { select: { id: true, nome: true } },
       },
     },
     analisadoPor: {
-      select: { id: true, nome: true, tipoCredencial: true },
+      select: {
+        id: true,
+        nome: true,
+        emailInstitucional: true,
+        codigoLogin: true,
+        tipoCredencial: true,
+        nivelAcesso: true,
+      },
     },
     serieRecorrencia: {
       select: {
@@ -100,6 +122,7 @@ export class ReservasRepository {
       ...RESERVA_COM_DETALHES,
       where: {
         ...(filtros.salaId ? { salaId: filtros.salaId } : {}),
+        ...(filtros.predioId ? { sala: { predioId: filtros.predioId } } : {}),
         ...(filtros.status ? { status: filtros.status } : {}),
         ...(filtros.solicitanteId ? { solicitanteId: filtros.solicitanteId } : {}),
         ...(filtros.responsavelId ? { responsavelId: filtros.responsavelId } : {}),
@@ -112,6 +135,14 @@ export class ReservasRepository {
             }
           : {}),
       },
+      orderBy: { dataHoraInicio: "asc" },
+    });
+  }
+
+  listarDetalhesPorSerie(serieRecorrenciaId: string): Promise<ReservaDetalhada[]> {
+    return this.db.reserva.findMany({
+      ...RESERVA_COM_DETALHES,
+      where: { serieRecorrenciaId },
       orderBy: { dataHoraInicio: "asc" },
     });
   }
@@ -144,11 +175,54 @@ export class ReservasRepository {
   async buscarComLocalizacao(id: string): Promise<ReservaComLocalizacao | null> {
     const reserva = await this.db.reserva.findUnique({
       where: { id },
-      include: { sala: { select: { predioId: true, predio: { select: { setorId: true } } } } },
+      include: {
+        sala: { select: { predioId: true, predio: { select: { setorId: true } } } },
+        solicitante: {
+          select: {
+            id: true,
+            tipoCredencial: true,
+            nivelAcesso: true,
+            lotacoesCoordenacao: { where: { ativo: true }, select: { id: true } },
+          },
+        },
+        responsavel: {
+          select: {
+            id: true,
+            tipoCredencial: true,
+            nivelAcesso: true,
+            departamentoId: true,
+            lotacoesCoordenacao: { where: { ativo: true }, select: { id: true } },
+          },
+        },
+      },
     });
     if (!reserva) return null;
-    const { sala, ...dados } = reserva;
-    return { ...dados, predioId: sala.predioId, setorId: sala.predio.setorId };
+    const { sala, solicitante, responsavel, ...dados } = reserva as typeof reserva & {
+      solicitante?: {
+        id: string;
+        tipoCredencial: TipoCredencial;
+        nivelAcesso?: number;
+        lotacoesCoordenacao?: Array<{ id: string }>;
+      } | null;
+      responsavel?: {
+        id: string;
+        tipoCredencial: TipoCredencial;
+        nivelAcesso?: number;
+        departamentoId?: string | null;
+        lotacoesCoordenacao?: Array<{ id: string }>;
+      } | null;
+    };
+    return {
+      ...dados,
+      predioId: sala.predioId,
+      setorId: sala.predio.setorId,
+      ...(solicitante?.tipoCredencial ? { solicitanteTipo: solicitante.tipoCredencial } : {}),
+      solicitanteEhCoordenador:
+        solicitante?.nivelAcesso === 4 || (solicitante?.lotacoesCoordenacao?.length ?? 0) > 0,
+      responsavelEhCoordenador:
+        responsavel?.nivelAcesso === 4 || (responsavel?.lotacoesCoordenacao?.length ?? 0) > 0,
+      responsavelDepartamentoId: responsavel?.departamentoId ?? null,
+    };
   }
 
   contarPorSolicitanteEStatusDesde(solicitanteId: string, status: StatusReserva, desde: Date): Promise<number> {
@@ -242,17 +316,50 @@ export class ReservasRepository {
       where: { id },
       include: {
         sala: { select: { predioId: true, predio: { select: { setorId: true } } } },
-        solicitante: { select: { id: true, tipoCredencial: true } },
-        responsavel: { select: { id: true, tipoCredencial: true, departamentoId: true } },
+        solicitante: {
+          select: {
+            id: true,
+            tipoCredencial: true,
+            nivelAcesso: true,
+            lotacoesCoordenacao: { where: { ativo: true }, select: { id: true } },
+          },
+        },
+        responsavel: {
+          select: {
+            id: true,
+            tipoCredencial: true,
+            nivelAcesso: true,
+            departamentoId: true,
+            lotacoesCoordenacao: { where: { ativo: true }, select: { id: true } },
+          },
+        },
       },
     });
     if (!reserva) return null;
-    const { sala, solicitante, responsavel, ...dados } = reserva;
+    const { sala, solicitante, responsavel, ...dados } = reserva as typeof reserva & {
+      solicitante: {
+        id: string;
+        tipoCredencial: TipoCredencial;
+        nivelAcesso?: number;
+        lotacoesCoordenacao?: Array<{ id: string }>;
+      };
+      responsavel?: {
+        id: string;
+        tipoCredencial: TipoCredencial;
+        nivelAcesso?: number;
+        departamentoId?: string | null;
+        lotacoesCoordenacao?: Array<{ id: string }>;
+      } | null;
+    };
     return {
       ...dados,
       predioId: sala.predioId,
       setorId: sala.predio.setorId,
       solicitanteTipo: solicitante.tipoCredencial,
+      solicitanteEhCoordenador:
+        solicitante.nivelAcesso === 4 || (solicitante.lotacoesCoordenacao?.length ?? 0) > 0,
+      responsavelEhCoordenador:
+        responsavel?.nivelAcesso === 4 || (responsavel?.lotacoesCoordenacao?.length ?? 0) > 0,
       responsavelDepartamentoId: responsavel?.departamentoId ?? null,
     };
   }

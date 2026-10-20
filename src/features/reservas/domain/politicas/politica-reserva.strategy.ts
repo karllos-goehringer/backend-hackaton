@@ -93,12 +93,17 @@ export class PoliticaTecnicoStrategy extends PoliticaSemPrivilegios {
   readonly exigeQuotaPendente12Horas = false;
   protected readonly rotulo = "Tecnicos";
 
-  override validarCriacao({ recorrente }: IntencaoCriacao): void {
+  override validarCriacao({ recorrente, delegada }: IntencaoCriacao): void {
     if (recorrente) throw new ForbiddenError("Tecnicos nao podem criar reservas recorrentes.");
+    if (delegada) throw new ForbiddenError("Tecnicos nao podem delegar a responsabilidade da reserva.");
+  }
+
+  override definirStatusInicial(): StatusReserva {
+    return StatusReserva.AGENDADO;
   }
 }
 
-/** Aplicada somente quando o docente tem lotacao ativa sobre o Predio/Setor da sala. */
+/** Aplicada somente quando o docente tem lotacao ativa sobre o Predio da sala. */
 export class PoliticaCoordenadorStrategy implements PoliticaReservaStrategy {
   readonly nivel = NivelAcesso.COORDENADOR;
   readonly exigeQuota12Horas = false;

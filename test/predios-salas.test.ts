@@ -35,12 +35,17 @@ import {
   criarPipelineValidacaoReserva,
   type ContextoValidacaoReserva,
 } from "../src/features/reservas/domain/validadores/validadores-reserva.js";
+import { ReservasController } from "../src/features/reservas/reservas.controller.js";
+import { criarReservasRouter } from "../src/features/reservas/reservas.routes.js";
 import { ReservasService } from "../src/features/reservas/reservas.service.js";
+import { construirEspecificacaoOpenApi } from "../src/shared/docs/openapi.spec.js";
 import { SalasController } from "../src/features/salas/salas.controller.js";
 import { construirWhereSalas, SalasRepository } from "../src/features/salas/salas.repository.js";
 import { criarSalasRouter } from "../src/features/salas/salas.routes.js";
 import { SalasService } from "../src/features/salas/salas.service.js";
 import { validarCriacaoSala, validarFiltrosSalas } from "../src/features/salas/salas.validation.js";
+import { TipoEntrada } from "../src/features/usuarios/credencial.dto.js";
+import { ehMatriculaAlunoValida, ehSiapeValido, UsuariosService } from "../src/features/usuarios/usuarios.service.js";
 import {
   BusinessRuleError,
   ConflictError,
@@ -514,7 +519,7 @@ describe("Predios e Salas — Dataset Inicial, Seed Idempotente, Consultas e Reg
     );
   });
 
-  test("6. Integracao com dominio de Reservas e Escopo de Coordenacao (predios com setorId null)", async () => {
+  test("6. Integracao com dominio de Reservas e Escopo de Coordenacao (fronteira estrita por predio)", async () => {
     const prisma = criarPrismaEmMemoria();
     await semearPrediosESalasIniciais(prisma);
 
@@ -547,16 +552,17 @@ describe("Predios e Salas — Dataset Inicial, Seed Idempotente, Consultas e Reg
       true,
     );
 
+    // Predio diferente nao cobre a sala, mesmo que compartilhem setorId
     assert.equal(
       cobreSala(
         {
           predioId: "64b7f0c2a1b2c3d4e5f68888",
-          setorId: null,
+          setorId: "64b7f0c2a1b2c3d4e5f67777",
           dataInicio: new Date("2026-01-01T00:00:00Z"),
           dataFim: null,
           ativo: true,
         },
-        salaParaReserva,
+        { ...salaParaReserva, setorId: "64b7f0c2a1b2c3d4e5f67777" },
       ),
       false,
     );
@@ -619,7 +625,7 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
       async () =>
         validadorResponsavel.validar({
           ator: atorAluno,
-          comando: { responsavelId: "aluno-2" },
+          responsavelId: "aluno-2",
           usuarios: {
             buscarResumoPorId: async () => ({
               id: "aluno-2",
@@ -632,11 +638,11 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
     );
   });
 
-  test("8. Limite de 2 reservas a cada 12h e 2 por dia para Aluno/Tecnico, status inicial por perfil e recorrencia", async () => {
+  test("8. Limite de 2 reservas a cada 12h e 2 por dia para Aluno/Tecnico, status inicial por perfil (Professor/Tecnico AGENDADO) e recorrencia", async () => {
     assert.equal(new PoliticaProfessorStrategy().definirStatusInicial(), StatusReserva.AGENDADO);
+    assert.equal(new PoliticaTecnicoStrategy().definirStatusInicial(), StatusReserva.AGENDADO);
     assert.equal(new PoliticaCoordenadorStrategy().definirStatusInicial(), StatusReserva.APROVADA);
     assert.equal(new PoliticaAlunoStrategy().definirStatusInicial(), StatusReserva.PENDENTE_APROVACAO);
-    assert.equal(new PoliticaTecnicoStrategy().definirStatusInicial(), StatusReserva.PENDENTE_APROVACAO);
 
     const validadorQuota12h = new ValidadorQuota12HorasAluno();
     await assert.doesNotReject(async () =>
@@ -833,5 +839,446 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
+  });
+
+  test("11. Cadastro de usuarios para ALUNO, PROFESSOR, TECNICO e COORDENADOR com validacao de matricula vs SIAPE e campos opcionais", async () => {
+    assert.equal(ehMatriculaAlunoValida("20261001"), true);
+    assert.equal(ehMatriculaAlunoValida("20241INFO0012"), true);
+    assert.equal(ehMatriculaAlunoValida("1543210"), false); // SIAPE 7 digitos rejeitado como matricula
+    assert.equal(ehSiapeValido("1543210"), true);
+    assert.equal(ehSiapeValido("20261001"), false); // Matricula 8 digitos rejeitada como SIAPE
+
+    const usuariosMem = new Map<string, any>();
+    const lotacoesMem: any[] = [];
+    const predioTiId = "64b7f0c2a1b2c3d4e5f60015";
+    let userSeq = 100;
+
+    const prismaUsuarios = {
+      $transaction: async (fn: any) => fn(prismaUsuarios),
+      predio: {
+        findUnique: async ({ where }: any) =>
+          where.id === predioTiId ? { id: predioTiId, nome: "Prédio TI", campusId: null, setorId: null } : null,
+      },
+      usuario: {
+        findFirst: async ({ where }: any) => {
+          for (const u of usuariosMem.values()) {
+            for (const cond of where.OR ?? []) {
+              if (cond.id && u.id === cond.id) return { id: u.id };
+              if (cond.emailInstitucional && u.emailInstitucional === cond.emailInstitucional) return { id: u.id };
+              if (cond.codigoLogin && u.codigoLogin === cond.codigoLogin) return { id: u.id };
+            }
+          }
+          return null;
+        },
+        create: async ({ data }: any) => {
+          const id = data.id ?? (userSeq++).toString(16).padStart(24, "0");
+          const criado = {
+            id,
+            nome: data.nome,
+            emailInstitucional: data.emailInstitucional ?? null,
+            telefone: data.telefone ?? null,
+            codigoLogin: data.codigoLogin,
+            tipoCredencial: data.tipoCredencial,
+            nivelAcesso: data.nivelAcesso,
+            ativo: true,
+            criadoEm: new Date(),
+            cursoId: data.cursoId ?? null,
+            departamentoId: data.departamentoId ?? null,
+          };
+          usuariosMem.set(id, criado);
+          return criado;
+        },
+        findUnique: async ({ where }: any) => {
+          const u = usuariosMem.get(where.id);
+          if (!u) return null;
+          return {
+            ...u,
+            curso: null,
+            departamento: null,
+            lotacoesCoordenacao: lotacoesMem.filter((l) => l.docenteId === u.id),
+          };
+        },
+      },
+      credencial: {
+        create: async () => {},
+      },
+      lotacaoCoordenacao: {
+        create: async ({ data }: any) => {
+          const lot = {
+            id: (userSeq++).toString(16).padStart(24, "0"),
+            docenteId: data.docenteId,
+            predioId: data.predioId,
+            setorId: data.setorId ?? null,
+            numeroPortaria: data.numeroPortaria,
+            ativo: true,
+            predio: { id: predioTiId, nome: "Prédio TI", campusId: null, setorId: null },
+            setor: null,
+          };
+          lotacoesMem.push(lot);
+          return lot;
+        },
+        findFirst: async ({ where }: any) =>
+          lotacoesMem.find((l) => l.docenteId === where.docenteId && l.ativo) ?? null,
+      },
+    } as unknown as PrismaClient;
+
+    const usuariosService = new UsuariosService({ prisma: prismaUsuarios, provisionKey: "" });
+
+    // 1. Aluno sem cursoId, sem email e sem telefone
+    const alunoCriado = await usuariosService.cadastrar(
+      {
+        nome: "Aluno Sem Curso",
+        matricula: "20261001",
+        credencial: { tipoEntrada: TipoEntrada.LOCAL, entrada: "20261001", senha: "SenhaAluno@123" },
+      },
+      undefined,
+      { exigirPapel: "ALUNO" },
+    );
+    assert.equal(alunoCriado.nivelAcesso, NivelAcesso.ALUNO);
+    assert.equal(alunoCriado.role, "ALUNO");
+    assert.equal(alunoCriado.email, null);
+
+    // 2. Aluno tentando usar SIAPE falha com ValidationError
+    await assert.rejects(
+      async () =>
+        usuariosService.cadastrar(
+          {
+            nome: "Aluno Com SIAPE",
+            siape: "1543210",
+            credencial: { tipoEntrada: TipoEntrada.LOCAL, entrada: "1543210", senha: "SenhaAluno@123" },
+          },
+          undefined,
+          { exigirPapel: "ALUNO" },
+        ),
+      (err: unknown) => err instanceof ValidationError,
+    );
+
+    // 3. Professor, Tecnico e Coordenador com SIAPE e rejeicao de matricula
+    const profCriado = await usuariosService.cadastrar(
+      {
+        nome: "Professora Maria",
+        siape: "1543210",
+        credencial: { tipoEntrada: TipoEntrada.LOCAL, entrada: "1543210", senha: "SenhaProf@123" },
+      },
+      undefined,
+      { exigirPapel: "PROFESSOR" },
+    );
+    assert.equal(profCriado.nivelAcesso, NivelAcesso.PROFESSOR);
+    assert.equal(profCriado.role, "PROFESSOR");
+
+    const tecCriado = await usuariosService.cadastrar(
+      {
+        nome: "Tecnico Joao",
+        siape: "1654321",
+        credencial: { tipoEntrada: TipoEntrada.LOCAL, entrada: "1654321", senha: "SenhaTec@123" },
+      },
+      undefined,
+      { exigirPapel: "TECNICO" },
+    );
+    assert.equal(tecCriado.nivelAcesso, NivelAcesso.TECNICO);
+    assert.equal(tecCriado.role, "TECNICO");
+
+    const coordCriado = await usuariosService.cadastrar(
+      {
+        nome: "Coordenador Carlos",
+        siape: "1765432",
+        predioId: predioTiId,
+        credencial: { tipoEntrada: TipoEntrada.LOCAL, entrada: "1765432", senha: "SenhaCoord@123" },
+      },
+      undefined,
+      { exigirPapel: "COORDENADOR" },
+    );
+    assert.equal(coordCriado.nivelAcesso, NivelAcesso.COORDENADOR);
+    assert.equal(coordCriado.role, "COORDENADOR");
+    assert.equal(coordCriado.coordenacoes.length, 1);
+    assert.equal(coordCriado.coordenacoes[0]?.predio?.nome, "Prédio TI");
+    assert.equal(coordCriado.coordenacoes[0]?.coordenador.nome, "Coordenador Carlos");
+
+    await assert.rejects(
+      async () =>
+        usuariosService.cadastrar(
+          {
+            nome: "Professor Com Matricula",
+            matricula: "20261001",
+            credencial: { tipoEntrada: TipoEntrada.LOCAL, entrada: "20261001", senha: "SenhaProf@123" },
+          },
+          undefined,
+          { exigirPapel: "PROFESSOR" },
+        ),
+      (err: unknown) => err instanceof ValidationError,
+    );
+  });
+
+  test("12. Transicoes de estado de reserva (aceite do responsavel -> APROVADA, rejeicao -> REJEITADA) e fronteira entre coordenadores", async () => {
+    const notificacoes = new NotificacoesService();
+    const idCoordA = "64b7f0c2a1b2c3d4e5f60010";
+    const idCoordB = "64b7f0c2a1b2c3d4e5f60020";
+    let statusAtual: StatusReserva = StatusReserva.PENDENTE_APROVACAO;
+    let aceitoEm: Date | null = null;
+    let motivoRejeicaoAtual: string | null = null;
+
+    const reservaAlunoObj = () => ({
+      id: "64b7f0c2a1b2c3d4e5f60900",
+      salaId: salaMock.id,
+      solicitanteId: atorAluno.id,
+      responsavelId: atorProfessor.id,
+      analisadoPorId: null,
+      serieRecorrenciaId: null,
+      tipoRecorrencia: TipoRecorrencia.UNICA,
+      dataHoraInicio: new Date("2026-10-21T14:00:00Z"),
+      dataHoraFim: new Date("2026-10-21T14:50:00Z"),
+      finalidade: "Grupo de Estudos",
+      observacoes: null,
+      status: statusAtual,
+      motivoRejeicao: motivoRejeicaoAtual,
+      cancelamento: null,
+      criadoEm: agora,
+      aceitoPeloResponsavelEm: aceitoEm,
+      analisadoEm: aceitoEm,
+      sala: {
+        ...salaMock,
+        predio: { id: salaMock.predioId, nome: "Prédio CT", campusId: null, setorId: null, endereco: null },
+        recursos: [],
+      },
+      solicitante: { id: atorAluno.id, nome: atorAluno.nome, tipoCredencial: TipoCredencial.MATRICULA_ALUNO, nivelAcesso: 1 },
+      responsavel: { id: atorProfessor.id, nome: atorProfessor.nome, tipoCredencial: TipoCredencial.SIAPE_DOCENTE, nivelAcesso: 3, departamentoId: "dep-1" },
+      analisadoPor: null,
+      serieRecorrencia: null,
+    });
+
+    const prismaFluxo = {
+      $transaction: async (fn: any) => fn(prismaFluxo),
+      sala: {
+        update: async () => ({ id: salaMock.id }),
+      },
+      reserva: {
+        findUnique: async () => reservaAlunoObj(),
+        findMany: async () => [],
+        updateMany: async ({ data }: any) => {
+          if (data.status) statusAtual = data.status;
+          if (data.aceitoPeloResponsavelEm) aceitoEm = data.aceitoPeloResponsavelEm;
+          if (data.motivoRejeicao) motivoRejeicaoAtual = data.motivoRejeicao;
+          return { count: 1 };
+        },
+      },
+    } as unknown as PrismaClient;
+
+    const escopo = new EscopoCoordenacaoService({
+      listarPorDocente: async (docenteId: string) =>
+        docenteId === idCoordA || docenteId === idCoordB
+          ? [{ predioId: salaMock.predioId, setorId: null, ativo: true }]
+          : [],
+    } as unknown as LotacoesRepository);
+
+    const service = new ReservasService({
+      prisma: prismaFluxo,
+      resolvedor: new ResolvedorPoliticaReserva(escopo),
+      pipeline: criarPipelineValidacaoReserva(carregarJanelaFuncionamento()),
+      factory: new ReservaFactory(),
+      notificacoes,
+      relogio: () => agora,
+    });
+
+    // Quando o professor responsavel aceita a reserva do aluno, ela transiciona para APROVADA
+    const aprovadaPeloResponsavel = await service.aceitarResponsabilidade(atorProfessor, "64b7f0c2a1b2c3d4e5f60900");
+    assert.equal(aprovadaPeloResponsavel.status, StatusReserva.APROVADA);
+    assert(aprovadaPeloResponsavel.aceitoPeloResponsavelEm);
+
+    // Coordenador B nao pode aprovar, rejeitar nem cancelar reserva sob responsabilidade de Coordenador A
+    statusAtual = StatusReserva.PENDENTE_APROVACAO;
+    aceitoEm = null;
+    const prismaConflitoCoord = {
+      $transaction: async (fn: any) => fn(prismaConflitoCoord),
+      lotacaoCoordenacao: {
+        findMany: async () => [{ predioId: salaMock.predioId, setorId: null, ativo: true }],
+      },
+      reserva: {
+        findUnique: async () => ({
+          ...reservaAlunoObj(),
+          solicitanteId: idCoordA,
+          responsavelId: idCoordA,
+          solicitante: { id: idCoordA, nome: "Coord A", tipoCredencial: TipoCredencial.SIAPE_DOCENTE, nivelAcesso: 4 },
+          responsavel: { id: idCoordA, nome: "Coord A", tipoCredencial: TipoCredencial.SIAPE_DOCENTE, nivelAcesso: 4 },
+        }),
+      },
+    } as unknown as PrismaClient;
+
+    const serviceConflitoCoord = new ReservasService({
+      prisma: prismaConflitoCoord,
+      resolvedor: new ResolvedorPoliticaReserva(escopo),
+      pipeline: criarPipelineValidacaoReserva(carregarJanelaFuncionamento()),
+      factory: new ReservaFactory(),
+      notificacoes,
+      relogio: () => agora,
+    });
+
+    const atorCoordB: AtorAutenticado = {
+      id: idCoordB,
+      nome: "Coord B",
+      tipoCredencial: TipoCredencial.SIAPE_DOCENTE,
+      nivelAcesso: NivelAcesso.COORDENADOR,
+      departamentoId: null,
+    };
+
+    await assert.rejects(
+      async () => serviceConflitoCoord.aprovar(atorCoordB, "64b7f0c2a1b2c3d4e5f60900"),
+      (err: unknown) => err instanceof ForbiddenError,
+    );
+    await assert.rejects(
+      async () => serviceConflitoCoord.rejeitar(atorCoordB, "64b7f0c2a1b2c3d4e5f60900", "Motivo"),
+      (err: unknown) => err instanceof ForbiddenError,
+    );
+    await assert.rejects(
+      async () => serviceConflitoCoord.cancelar(atorCoordB, "64b7f0c2a1b2c3d4e5f60900", "Justificativa"),
+      (err: unknown) => err instanceof ForbiddenError,
+    );
+  });
+
+  test("13. Consultas GET /reservas/minhas vs GET /reservas/responsavel, escopo de predio para coordenador em Predios/Salas e OpenAPI", async () => {
+    const reservasArmazenadas = [
+      {
+        id: "64b7f0c2a1b2c3d4e5f60901",
+        salaId: salaMock.id,
+        solicitanteId: atorAluno.id,
+        responsavelId: atorProfessor.id,
+        analisadoPorId: null,
+        serieRecorrenciaId: null,
+        tipoRecorrencia: TipoRecorrencia.UNICA,
+        dataHoraInicio: new Date("2026-10-21T14:00:00Z"),
+        dataHoraFim: new Date("2026-10-21T14:50:00Z"),
+        finalidade: "Solicitada por Aluno sob responsabilidade do Professor",
+        observacoes: null,
+        status: StatusReserva.PENDENTE_APROVACAO,
+        motivoRejeicao: null,
+        cancelamento: null,
+        criadoEm: agora,
+        aceitoPeloResponsavelEm: null,
+        analisadoEm: null,
+        sala: {
+          ...salaMock,
+          predio: { id: salaMock.predioId, nome: "Prédio CT", campusId: null, setorId: null, endereco: null },
+          recursos: [],
+        },
+        solicitante: { id: atorAluno.id, nome: atorAluno.nome, tipoCredencial: TipoCredencial.MATRICULA_ALUNO, nivelAcesso: 1 },
+        responsavel: { id: atorProfessor.id, nome: atorProfessor.nome, tipoCredencial: TipoCredencial.SIAPE_DOCENTE, nivelAcesso: 3 },
+        analisadoPor: null,
+        serieRecorrencia: null,
+      },
+      {
+        id: "64b7f0c2a1b2c3d4e5f60902",
+        salaId: salaMock.id,
+        solicitanteId: atorProfessor.id,
+        responsavelId: atorProfessor.id,
+        analisadoPorId: null,
+        serieRecorrenciaId: null,
+        tipoRecorrencia: TipoRecorrencia.UNICA,
+        dataHoraInicio: new Date("2026-10-21T15:00:00Z"),
+        dataHoraFim: new Date("2026-10-21T15:50:00Z"),
+        finalidade: "Aula do proprio Professor",
+        observacoes: null,
+        status: StatusReserva.AGENDADO,
+        motivoRejeicao: null,
+        cancelamento: null,
+        criadoEm: agora,
+        aceitoPeloResponsavelEm: null,
+        analisadoEm: null,
+        sala: {
+          ...salaMock,
+          predio: { id: salaMock.predioId, nome: "Prédio CT", campusId: null, setorId: null, endereco: null },
+          recursos: [],
+        },
+        solicitante: { id: atorProfessor.id, nome: atorProfessor.nome, tipoCredencial: TipoCredencial.SIAPE_DOCENTE, nivelAcesso: 3 },
+        responsavel: { id: atorProfessor.id, nome: atorProfessor.nome, tipoCredencial: TipoCredencial.SIAPE_DOCENTE, nivelAcesso: 3 },
+        analisadoPor: null,
+        serieRecorrencia: null,
+      },
+    ];
+
+    const prismaConsultas = {
+      reserva: {
+        findMany: async ({ where }: any) =>
+          reservasArmazenadas.filter((r) => {
+            if (where?.solicitanteId && r.solicitanteId !== where.solicitanteId) return false;
+            if (where?.responsavelId && r.responsavelId !== where.responsavelId) return false;
+            return true;
+          }),
+      },
+    } as unknown as PrismaClient;
+
+    const escopo = new EscopoCoordenacaoService({ listarPorDocente: async () => [] } as unknown as LotacoesRepository);
+    const reservasService = new ReservasService({
+      prisma: prismaConsultas,
+      resolvedor: new ResolvedorPoliticaReserva(escopo),
+      pipeline: criarPipelineValidacaoReserva(carregarJanelaFuncionamento()),
+      factory: new ReservaFactory(),
+      relogio: () => agora,
+    });
+
+    const app = express();
+    app.use(express.json());
+    app.use(
+      "/reservas",
+      criarReservasRouter(new ReservasController(reservasService), (req, _res, next) => {
+        req.ator = req.header("x-ator") === "ALUNO" ? atorAluno : atorProfessor;
+        next();
+      }),
+    );
+    app.use(errorHandler);
+
+    const server = app.listen(0);
+    const { port } = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${port}`;
+
+    try {
+      // Aluno consulta /reservas/minhas -> 1 reserva; /reservas/responsavel -> 0 reservas
+      const resMinhasAluno = await fetch(`${baseUrl}/reservas/minhas`, { headers: { "x-ator": "ALUNO" } });
+      assert.equal(resMinhasAluno.status, 200);
+      const minhasAluno = (await resMinhasAluno.json()) as any[];
+      assert.equal(minhasAluno.length, 1);
+      assert.equal(minhasAluno[0].id, "64b7f0c2a1b2c3d4e5f60901");
+      assert.equal(minhasAluno[0].sala.nomeSala, "Sala 01 CT");
+
+      const resRespAluno = await fetch(`${baseUrl}/reservas/responsavel`, { headers: { "x-ator": "ALUNO" } });
+      const respAluno = (await resRespAluno.json()) as any[];
+      assert.equal(respAluno.length, 0);
+
+      // Professor consulta /reservas/minhas -> 1 reserva (a propria); /reservas/responsavel -> 2 reservas (a propria + a do aluno)
+      const resMinhasProf = await fetch(`${baseUrl}/reservas/minhas`, { headers: { "x-ator": "PROFESSOR" } });
+      const minhasProf = (await resMinhasProf.json()) as any[];
+      assert.equal(minhasProf.length, 1);
+      assert.equal(minhasProf[0].id, "64b7f0c2a1b2c3d4e5f60902");
+
+      const resRespProf = await fetch(`${baseUrl}/reservas/responsavel`, { headers: { "x-ator": "PROFESSOR" } });
+      const respProf = (await resRespProf.json()) as any[];
+      assert.equal(respProf.length, 2);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+
+    // Escopo de coordenador por predio em SalasService / PrediosService
+    const predioAId = "64b7f0c2a1b2c3d4e5f600a1";
+    const predioBId = "64b7f0c2a1b2c3d4e5f600b2";
+    const prismaEscopoPredio = {
+      lotacaoCoordenacao: {
+        findMany: async () => [{ predioId: predioAId, setorId: null, ativo: true }],
+      },
+      predio: {
+        findUnique: async ({ where }: any) =>
+          where.id === predioBId ? { id: predioBId, nome: "Prédio B", campusId: null, setorId: null, endereco: null } : null,
+      },
+    } as unknown as PrismaClient;
+
+    const salasServiceEscopo = new SalasService({ prisma: prismaEscopoPredio });
+    await assert.rejects(
+      async () => salasServiceEscopo.criar(atorCoordenador, { predioId: predioBId, nomeSala: "Sala Restrita", capacidade: 20 }),
+      (err: unknown) => err instanceof ForbiddenError,
+    );
+
+    const spec = construirEspecificacaoOpenApi() as any;
+    assert(spec.paths["/usuarios/professores"]);
+    assert(spec.paths["/usuarios/tecnicos"]);
+    assert(spec.paths["/usuarios/coordenadores"]);
+    assert(spec.paths["/reservas/minhas"]);
+    assert(spec.paths["/reservas/responsavel"]);
   });
 });

@@ -4,7 +4,7 @@ import type { DbClient } from "../../shared/database/transacao.js";
 export interface UsuarioResumo {
   id: string;
   nome: string;
-  emailInstitucional?: string;
+  emailInstitucional?: string | null;
   telefone?: string | null;
   tipoCredencial: TipoCredencial;
   nivelAcesso?: number;
@@ -23,6 +23,7 @@ export interface CredencialAutenticacao {
     id: string;
     nome: string;
     tipoCredencial: TipoCredencial;
+    nivelAcesso?: number;
     codigoLogin: string;
     ativo: boolean;
     departamentoId: string | null;
@@ -32,7 +33,7 @@ export interface CredencialAutenticacao {
 export interface PerfilUsuario {
   id: string;
   nome: string;
-  emailInstitucional: string;
+  emailInstitucional: string | null;
   telefone: string | null;
   codigoLogin: string;
   tipoCredencial: TipoCredencial;
@@ -47,6 +48,17 @@ export interface PerfilUsuario {
     setorId: string | null;
     numeroPortaria: string;
     ativo: boolean;
+    predio?: {
+      id: string;
+      nome: string;
+      campusId: string | null;
+      setorId: string | null;
+    } | null;
+    setor?: {
+      id: string;
+      nome: string;
+      sigla: string | null;
+    } | null;
   }>;
 }
 
@@ -104,6 +116,14 @@ export class UsuariosRepository {
     return lotacao !== null;
   }
 
+  async possuiLotacaoAtivaNoPredio(docenteId: string, predioId: string): Promise<boolean> {
+    const lotacao = await this.db.lotacaoCoordenacao.findFirst({
+      where: { docenteId, predioId, ativo: true },
+      select: { id: true },
+    });
+    return lotacao !== null;
+  }
+
   buscarCredencial(tipoEntrada: TipoEntradaCredencial, entrada: string): Promise<CredencialAutenticacao | null> {
     return this.db.credencial.findUnique({
       where: { entrada },
@@ -154,6 +174,21 @@ export class UsuariosRepository {
             setorId: true,
             numeroPortaria: true,
             ativo: true,
+            predio: {
+              select: {
+                id: true,
+                nome: true,
+                campusId: true,
+                setorId: true,
+              },
+            },
+            setor: {
+              select: {
+                id: true,
+                nome: true,
+                sigla: true,
+              },
+            },
           },
         },
       },

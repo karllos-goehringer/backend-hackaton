@@ -136,7 +136,7 @@ model Curso {
 model Usuario {
   id                 String         @id @default(auto()) @map("_id") @db.ObjectId
   nome               String
-  emailInstitucional String         @unique
+  emailInstitucional String?
   telefone           String?
   codigoLogin        String         @unique // Matricula (aluno) ou SIAPE (docente), normalizado
   tipoCredencial     TipoCredencial

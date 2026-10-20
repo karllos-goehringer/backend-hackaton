@@ -22,8 +22,10 @@ import {
 
 export interface ResultadoCriacaoReserva {
   serieRecorrencia: SerieRecorrencia | null;
-  reservas: ComDiaDaSemana<Reserva>[];
+  reservas: ComDiaDaSemana<Reserva | ReservaDetalhada>[];
 }
+
+export type FiltrosConsultaEscopada = Omit<FiltrosListagemReservas, "solicitanteId" | "responsavelId">;
 
 export interface DependenciasReservasService {
   prisma: PrismaClient;
@@ -70,6 +72,28 @@ export class ReservasService implements IReservavel {
     return reservas.map(anexarDiaDaSemana);
   }
 
+  /** Lista exclusivamente as reservas criadas/solicitadas pelo usuario autenticado (`solicitanteId = ator.id`). */
+  async listarMinhasSolicitadas(
+    ator: AtorReserva,
+    filtros: FiltrosConsultaEscopada = {},
+  ): Promise<ComDiaDaSemana<ReservaDetalhada>[]> {
+    return this.listar({
+      ...filtros,
+      solicitanteId: ator.id,
+    });
+  }
+
+  /** Lista exclusivamente as reservas em que o usuario autenticado figura como responsavel (`responsavelId = ator.id`). */
+  async listarSobMinhaResponsabilidade(
+    ator: AtorReserva,
+    filtros: FiltrosConsultaEscopada = {},
+  ): Promise<ComDiaDaSemana<ReservaDetalhada>[]> {
+    return this.listar({
+      ...filtros,
+      responsavelId: ator.id,
+    });
+  }
+
   async buscarPorId(reservaId: string): Promise<ComDiaDaSemana<ReservaDetalhada>> {
     const reserva = await new ReservasRepository(this.prisma).buscarDetalhesPorId(reservaId);
     if (!reserva) throw new NotFoundError("Reserva nao encontrada.");
@@ -106,12 +130,14 @@ export class ReservasService implements IReservavel {
       if (!temRecorrencia(comando)) {
         const [dados] = this.factory.criarReservas(base);
         const criada = await reservas.criar(dados);
-        return { serieRecorrencia: null, reservas: [anexarDiaDaSemana(criada)] };
+        const detalhada = (await reservas.buscarDetalhesPorId(criada.id)) ?? criada;
+        return { serieRecorrencia: null, reservas: [anexarDiaDaSemana(detalhada)] };
       }
 
       const serie = await reservas.criarSerie(this.factory.criarSerie(comando, ator.id));
       await reservas.criarVarias(this.factory.criarReservas({ ...base, serieRecorrenciaId: serie.id }));
-      const criadas = await reservas.listarPorSerie(serie.id);
+      const criadasDetalhadas = await reservas.listarDetalhesPorSerie(serie.id);
+      const criadas = criadasDetalhadas.length > 0 ? criadasDetalhadas : await reservas.listarPorSerie(serie.id);
       return { serieRecorrencia: serie, reservas: criadas.map(anexarDiaDaSemana) };
     });
   }
@@ -123,10 +149,13 @@ export class ReservasService implements IReservavel {
   }
 
   /**
-   * Etapa 1 do fluxo de reserva de aluno: o servidor indicado como `responsavel` aceita a
-   * responsabilidade e encaminha a solicitacao ao coordenador do seu departamento.
+   * Aceite e aprovacao pelo servidor/coordenador indicado como `responsavel` na reserva de aluno.
+   * Transiciona a reserva de `PENDENTE_APROVACAO` para `APROVADA` verificando conflitos na sala.
    */
-  async aceitarResponsabilidade(ator: AtorReserva, reservaId: string): Promise<ComDiaDaSemana<Reserva>> {
+  async aceitarResponsabilidade(
+    ator: AtorReserva,
+    reservaId: string,
+  ): Promise<ComDiaDaSemana<Reserva | ReservaDetalhada>> {
     const agora = this.relogio();
     const reservasRepo = new ReservasRepository(this.prisma);
     const detalhe = await reservasRepo.buscarParaCancelamento(reservaId);
@@ -142,8 +171,30 @@ export class ReservasService implements IReservavel {
       throw new ConflictError("A responsabilidade por esta reserva ja foi aceita.");
     }
 
-    await this.transicionar(reservasRepo, detalhe, {
-      aceitoPeloResponsavelEm: agora,
+    const novoStatus = estadoDaReserva(detalhe.status).aprovar();
+
+    const aprovada = await executarTransacao(this.prisma, async (tx) => {
+      const reservas = new ReservasRepository(tx);
+      await new SalasRepository(tx).travarAgenda(detalhe.salaId);
+
+      const ocorrencia = { inicio: detalhe.dataHoraInicio, fim: detalhe.dataHoraFim };
+      const bloqueantes = await reservas.listarIntervalosNaJanela(
+        detalhe.salaId,
+        [StatusReserva.APROVADA, StatusReserva.AGENDADO],
+        ocorrencia.inicio,
+        ocorrencia.fim,
+        detalhe.id,
+      );
+      garantirSemConflito([ocorrencia], bloqueantes);
+
+      await this.transicionar(reservas, detalhe, {
+        status: novoStatus,
+        aceitoPeloResponsavelEm: agora,
+        analisadoPorId: ator.id,
+        analisadoEm: agora,
+      });
+
+      return this.recarregar(reservas, detalhe.id);
     });
 
     await this.notificacoes.notificarEncaminhamentoReserva({
@@ -155,35 +206,47 @@ export class ReservasService implements IReservavel {
       criadoEm: agora,
     });
 
-    return this.recarregar(reservasRepo, detalhe.id);
+    await this.notificacoes.notificarEstadoReserva({
+      tipo: TipoNotificacao.APROVACAO_RESERVA,
+      reservaId: aprovada.id,
+      solicitanteId: aprovada.solicitanteId,
+      alteradoPorId: ator.id,
+      dataHoraInicio: aprovada.dataHoraInicio,
+      dataHoraFim: aprovada.dataHoraFim,
+      criadoEm: agora,
+    });
+
+    return aprovada;
   }
 
-  async aprovar(ator: AtorReserva, reservaId: string): Promise<ComDiaDaSemana<Reserva>> {
+  async aprovar(ator: AtorReserva, reservaId: string): Promise<ComDiaDaSemana<Reserva | ReservaDetalhada>> {
     const agora = this.relogio();
     const reserva = await this.carregar(reservaId);
-    const politica = await this.resolvedor.resolver(ator, reserva);
 
-    // Se o ator nao for o coordenador da sala, mas for o servidor responsavel pela reserva de aluno,
-    // executa o aceite do responsavel e encaminha ao coordenador.
-    if (!politica.podeAprovarOuRejeitar()) {
-      if (
-        ator.tipoCredencial !== TipoCredencial.MATRICULA_ALUNO &&
-        reserva.responsavelId === ator.id &&
-        reserva.solicitanteId !== reserva.responsavelId
-      ) {
-        return this.aceitarResponsabilidade(ator, reservaId);
-      }
-      throw new ForbiddenError("Apenas o coordenador do predio/setor da sala pode aprovar ou rejeitar esta reserva.");
+    // Se o ator for o servidor/coordenador designado como responsavel de uma reserva de aluno,
+    // efetiva o aceite de responsabilidade e transiciona para APROVADA.
+    if (
+      ator.tipoCredencial !== TipoCredencial.MATRICULA_ALUNO &&
+      reserva.responsavelId === ator.id &&
+      reserva.solicitanteId !== reserva.responsavelId &&
+      !reserva.aceitoPeloResponsavelEm
+    ) {
+      return this.aceitarResponsabilidade(ator, reservaId);
     }
 
-    // Reservas delegadas precisam do aceite do responsavel antes da aprovacao do coordenador,
-    // inclusive quando o responsavel tambem exerce a coordenacao da sala.
+    const politica = await this.resolvedor.resolver(ator, reserva);
+    if (!politica.podeAprovarOuRejeitar()) {
+      throw new ForbiddenError("Apenas o responsavel designado ou o coordenador do predio da sala pode aprovar esta reserva.");
+    }
+
+    this.garantirSemConflitoDePropriedadeCoordenador(ator, reserva, "aprovar");
+
     if (
       reserva.solicitanteId !== reserva.responsavelId &&
       !reserva.aceitoPeloResponsavelEm
     ) {
       throw new BusinessRuleError(
-        "A reserva precisa primeiro ser aceita pelo servidor responsavel antes da aprovacao final do coordenador.",
+        "A reserva precisa primeiro ser aceita pelo servidor responsavel antes da aprovacao pelo coordenador.",
       );
     }
 
@@ -224,9 +287,13 @@ export class ReservasService implements IReservavel {
     return aprovada;
   }
 
-  async rejeitar(ator: AtorReserva, reservaId: string, motivo: string): Promise<ComDiaDaSemana<Reserva>> {
+  async rejeitar(
+    ator: AtorReserva,
+    reservaId: string,
+    motivo: string,
+  ): Promise<ComDiaDaSemana<Reserva | ReservaDetalhada>> {
     const agora = this.relogio();
-    const reserva = await this.carregarComPermissaoDeAnalise(ator, reservaId, agora);
+    const reserva = await this.carregarComPermissaoDeRejeicao(ator, reservaId);
     const novoStatus = estadoDaReserva(reserva.status).rejeitar();
 
     const reservas = new ReservasRepository(this.prisma);
@@ -263,17 +330,43 @@ export class ReservasService implements IReservavel {
     return reserva;
   }
 
-  private async carregarComPermissaoDeAnalise(
+  private async carregarComPermissaoDeRejeicao(
     ator: AtorReserva,
     reservaId: string,
-    agora: Date,
   ): Promise<ReservaComLocalizacao> {
     const reserva = await this.carregar(reservaId);
+    const ehResponsavelDesignado =
+      ator.tipoCredencial !== TipoCredencial.MATRICULA_ALUNO &&
+      reserva.responsavelId === ator.id;
+
+    if (ehResponsavelDesignado) {
+      return reserva;
+    }
+
     const politica = await this.resolvedor.resolver(ator, reserva);
     if (!politica.podeAprovarOuRejeitar()) {
-      throw new ForbiddenError("Apenas o coordenador do predio/setor da sala pode aprovar ou rejeitar esta reserva.");
+      throw new ForbiddenError(
+        "Apenas o responsavel designado ou o coordenador do predio da sala pode rejeitar esta reserva.",
+      );
     }
+
+    this.garantirSemConflitoDePropriedadeCoordenador(ator, reserva, "rejeitar");
     return reserva;
+  }
+
+  private garantirSemConflitoDePropriedadeCoordenador(
+    ator: AtorReserva,
+    reserva: ReservaComLocalizacao,
+    acao: "aprovar" | "rejeitar",
+  ): void {
+    if (
+      (reserva.responsavelId !== ator.id && reserva.responsavelEhCoordenador) ||
+      (reserva.solicitanteId !== ator.id && reserva.solicitanteEhCoordenador)
+    ) {
+      throw new ForbiddenError(
+        `Um coordenador nao pode ${acao} reservas que estao sob a responsabilidade de outro coordenador.`,
+      );
+    }
   }
 
   /** Aplica a transicao somente se o status nao mudou desde a leitura (protege contra corrida). */
@@ -288,8 +381,11 @@ export class ReservasService implements IReservavel {
     }
   }
 
-  private async recarregar(reservas: ReservasRepository, id: string): Promise<ComDiaDaSemana<Reserva>> {
-    const reserva = await reservas.buscarPorId(id);
+  private async recarregar(
+    reservas: ReservasRepository,
+    id: string,
+  ): Promise<ComDiaDaSemana<Reserva | ReservaDetalhada>> {
+    const reserva = (await reservas.buscarDetalhesPorId(id)) ?? (await reservas.buscarPorId(id));
     if (!reserva) throw new NotFoundError("Reserva nao encontrada.");
     return anexarDiaDaSemana(reserva);
   }

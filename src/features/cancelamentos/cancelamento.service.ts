@@ -8,8 +8,8 @@ import type { ICancelavel } from "../reservas/domain/contratos/cancelavel.interf
 import { estadoDaReserva } from "../reservas/domain/estado/estado-reserva.js";
 import { NivelAcesso } from "../reservas/domain/nivel-acesso.js";
 import { ResolvedorPoliticaReserva, type AtorReserva } from "../reservas/domain/politicas/resolvedor-politica.js";
-import { anexarDiaDaSemana } from "../reservas/domain/reserva.types.js";
-import { ReservasRepository } from "../reservas/reservas.repository.js";
+import { anexarDiaDaSemana, type ComDiaDaSemana } from "../reservas/domain/reserva.types.js";
+import { ReservasRepository, type ReservaDetalhada } from "../reservas/reservas.repository.js";
 
 export interface DependenciasCancelamentoService {
   prisma: PrismaClient;
@@ -18,7 +18,7 @@ export interface DependenciasCancelamentoService {
 }
 
 export interface ResultadoCancelamento {
-  reserva: Reserva | null;
+  reserva: ComDiaDaSemana<Reserva | ReservaDetalhada> | null;
   solicitacaoEnviada: boolean;
   mensagem: string;
 }
@@ -86,8 +86,17 @@ export class CancelamentoService implements ICancelavel {
       };
     }
 
-    // 2. Coordenador: pode cancelar qualquer reserva no seu escopo antes do inicio
+    // 2. Coordenador: pode cancelar reservas no seu predio coordenado antes do inicio,
+    // desde que nao estejam sob a responsabilidade de outro coordenador.
     if (nivel === NivelAcesso.COORDENADOR) {
+      if (
+        (reserva.responsavelId !== ator.id && reserva.responsavelEhCoordenador) ||
+        (reserva.solicitanteId !== ator.id && reserva.solicitanteEhCoordenador)
+      ) {
+        throw new ForbiddenError(
+          "Um coordenador nao pode cancelar reservas que estao sob a responsabilidade de outro coordenador.",
+        );
+      }
       this.garantirAntesDoInicio(reserva, agora);
       const cancelada = await this.efetivarCancelamento(reserva, ator.id, justificativa, agora);
       return {
@@ -97,7 +106,8 @@ export class CancelamentoService implements ICancelavel {
       };
     }
 
-    // 3. Professor: pode cancelar a propria reserva (solicitanteId === ator.id) ou solicitar cancelamento de reserva de aluno
+    // 3. Professor: pode cancelar a propria reserva (solicitanteId === ator.id) ou reserva em que e responsavel,
+    // ou solicitar cancelamento de reserva de aluno
     if (nivel === NivelAcesso.PROFESSOR) {
       const ehPropria = reserva.solicitanteId === ator.id;
       if (ehPropria) {
@@ -166,7 +176,7 @@ export class CancelamentoService implements ICancelavel {
     canceladorId: string,
     justificativa: string,
     agora: Date,
-  ): Promise<Reserva> {
+  ): Promise<Reserva | ReservaDetalhada> {
     const novoStatus = estadoDaReserva(reserva.status).cancelar();
     const reservasRepo = new ReservasRepository(this.prisma);
 
@@ -185,7 +195,9 @@ export class CancelamentoService implements ICancelavel {
       throw new ConflictError("A reserva foi alterada por outra operacao. Recarregue e tente novamente.");
     }
 
-    const reservaAtualizada = await reservasRepo.buscarPorId(reserva.id);
+    const reservaAtualizada =
+      (await reservasRepo.buscarDetalhesPorId(reserva.id)) ??
+      (await reservasRepo.buscarPorId(reserva.id));
     if (!reservaAtualizada) {
       throw new NotFoundError("Reserva nao encontrada apos atualizacao.");
     }

@@ -5,8 +5,11 @@ import type { UsuariosController } from "./usuarios.controller.js";
 export function criarUsuariosRouter(controller: UsuariosController, autenticar: RequestHandler): Router {
   const router = Router();
   router.post("/", controller.cadastrar);
-  router.post("/alunos", controller.cadastrar);
-  router.post("/servidores", controller.cadastrar);
+  router.post("/alunos", controller.cadastrarAluno);
+  router.post("/servidores", controller.cadastrarServidor);
+  router.post("/professores", controller.cadastrarProfessor);
+  router.post("/tecnicos", controller.cadastrarTecnico);
+  router.post("/coordenadores", controller.cadastrarCoordenador);
   router.get("/departamentos-elegiveis", controller.listarDepartamentosElegiveis);
   router.get("/me", autenticar, controller.meuPerfil);
   return router;
