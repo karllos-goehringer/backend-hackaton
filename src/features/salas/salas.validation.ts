@@ -54,6 +54,10 @@ export function validarFiltrosSalas(query: unknown): FiltrosBuscaSalas {
   const erros: Erros = {};
   const filtros: FiltrosBuscaSalas = {};
 
+  if (query.setorId !== undefined || query.setor !== undefined) {
+    erros.setorId = "O campo setor/setorId foi removido do modelo; salas vinculam-se diretamente ao predio.";
+  }
+
   if (query.predioId !== undefined) {
     if (!ehObjectId(query.predioId)) erros.predioId = "Id de predio invalido.";
     else filtros.predioId = query.predioId;
@@ -124,6 +128,10 @@ export function validarFiltrosSalas(query: unknown): FiltrosBuscaSalas {
 export function validarCriacaoSala(corpo: unknown): CriarSalaDados {
   if (!ehObjeto(corpo)) throw new ValidationError("O corpo da requisicao deve ser um objeto JSON.");
   const erros: Erros = {};
+
+  if (corpo.setorId !== undefined || corpo.setor !== undefined) {
+    erros.setorId = "O campo setor/setorId foi removido do modelo; salas vinculam-se diretamente ao predio.";
+  }
 
   if (!ehObjectId(corpo.predioId)) {
     erros.predioId = "Informe um id de predio valido.";
@@ -198,6 +206,10 @@ export function validarAtualizacaoSala(corpo: unknown): AtualizarSalaDados {
   const erros: Erros = {};
   const dados: AtualizarSalaDados = {};
 
+  if (corpo.setorId !== undefined || corpo.setor !== undefined) {
+    erros.setorId = "O campo setor/setorId foi removido do modelo; salas vinculam-se diretamente ao predio.";
+  }
+
   if (corpo.predioId !== undefined) {
     if (!ehObjectId(corpo.predioId)) erros.predioId = "Informe um id de predio valido.";
     else dados.predioId = corpo.predioId;
@@ -262,4 +274,3 @@ export function validarAtualizacaoSala(corpo: unknown): AtualizarSalaDados {
 
   return dados;
 }
-

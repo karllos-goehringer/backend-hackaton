@@ -1,10 +1,9 @@
 import type { Prisma, TipoSala } from "@prisma/client";
 import type { DbClient } from "../../shared/database/transacao.js";
 
-/** Localizacao territorial de uma sala, usada no escopo de coordenacao. */
+/** Localizacao territorial de uma sala, usada no escopo de coordenacao (Predio -> Sala). */
 export interface LocalizacaoSala {
   predioId: string;
-  setorId: string | null;
 }
 
 export interface SalaParaReserva extends LocalizacaoSala {
@@ -19,7 +18,6 @@ export interface PredioResumoSala {
   id: string;
   nome: string;
   campusId: string | null;
-  setorId: string | null;
 }
 
 export interface SalaComPredio {
@@ -85,7 +83,6 @@ const SELECT_SALA_COM_PREDIO = {
       id: true,
       nome: true,
       campusId: true,
-      setorId: true,
     },
   },
 } satisfies Prisma.SalaSelect;
@@ -103,7 +100,6 @@ function mapearSalaComPredio(sala: SalaSelecionada): SalaComPredio {
       id: sala.predio.id,
       nome: sala.predio.nome,
       campusId: sala.predio.campusId,
-      setorId: sala.predio.setorId,
     },
     ativa: sala.ativa,
     codigo: sala.codigo,
@@ -168,7 +164,6 @@ export class SalasRepository {
         capacidade: true,
         ativa: true,
         predioId: true,
-        predio: { select: { setorId: true } },
       },
     });
     if (!sala) return null;
@@ -179,7 +174,6 @@ export class SalasRepository {
       capacidade: sala.capacidade,
       ativa: sala.ativa,
       predioId: sala.predioId,
-      setorId: sala.predio.setorId,
     };
   }
 

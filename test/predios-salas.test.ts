@@ -65,7 +65,6 @@ function criarPrismaEmMemoria() {
     id: string;
     nome: string;
     campusId: string | null;
-    setorId: string | null;
     endereco: { rua: string; numero: number; bairro: string; cep: string } | null;
   }
 
@@ -128,7 +127,6 @@ function criarPrismaEmMemoria() {
         id: predio.id,
         nome: predio.nome,
         campusId: predio.campusId,
-        setorId: predio.setorId,
       },
     };
   };
@@ -174,7 +172,6 @@ function criarPrismaEmMemoria() {
           id: proximoObjectId(),
           nome: data.nome,
           campusId: data.campusId ?? null,
-          setorId: data.setorId ?? null,
           endereco: data.endereco ?? null,
         };
         predios.set(novo.id, novo);
@@ -187,7 +184,6 @@ function criarPrismaEmMemoria() {
           ...atual,
           ...(data.nome !== undefined ? { nome: data.nome } : {}),
           ...(data.campusId !== undefined ? { campusId: data.campusId } : {}),
-          ...(data.setorId !== undefined ? { setorId: data.setorId } : {}),
           ...(data.endereco !== undefined ? { endereco: data.endereco } : {}),
         };
         predios.set(atualizado.id, atualizado);
@@ -534,7 +530,6 @@ describe("Predios e Salas — Dataset Inicial, Seed Idempotente, Consultas e Reg
     const salaParaReserva = await salasRepo.buscarParaReserva(salaTi.id);
     assert(salaParaReserva);
     assert.equal(salaParaReserva.predioId, salaTi.predioId);
-    assert.equal(salaParaReserva.setorId, null);
     assert.equal(salaParaReserva.capacidade, 9);
     assert.equal(salaParaReserva.ativa, true);
 
@@ -542,7 +537,6 @@ describe("Predios e Salas — Dataset Inicial, Seed Idempotente, Consultas e Reg
       cobreSala(
         {
           predioId: salaTi.predioId,
-          setorId: null,
           dataInicio: new Date("2026-01-01T00:00:00Z"),
           dataFim: null,
           ativo: true,
@@ -552,17 +546,15 @@ describe("Predios e Salas — Dataset Inicial, Seed Idempotente, Consultas e Reg
       true,
     );
 
-    // Predio diferente nao cobre a sala, mesmo que compartilhem setorId
     assert.equal(
       cobreSala(
         {
           predioId: "64b7f0c2a1b2c3d4e5f68888",
-          setorId: "64b7f0c2a1b2c3d4e5f67777",
           dataInicio: new Date("2026-01-01T00:00:00Z"),
           dataFim: null,
           ativo: true,
         },
-        { ...salaParaReserva, setorId: "64b7f0c2a1b2c3d4e5f67777" },
+        salaParaReserva,
       ),
       false,
     );
@@ -591,7 +583,6 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
     capacidade: 40,
     ativa: true,
     predioId: "60d5ec49f1b2c8b1f8e4e1a2",
-    setorId: null,
   };
 
   test("7. Duracao exata de 50 minutos, antecedencia minima de 12h (Aluno/Tecnico) e bloqueio de Aluno como responsavel", async () => {
@@ -702,7 +693,6 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
       listarAtivasDoDocente: async () => [
         {
           predioId: salaMock.predioId,
-          setorId: null,
           dataInicio: new Date("2026-01-01T00:00:00Z"),
           dataFim: null,
           ativo: true,
@@ -715,7 +705,6 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
         findUnique: async () => ({
           ...salaMock,
           ativa: false,
-          predio: { setorId: null },
         }),
       },
     } as unknown as PrismaClient;
@@ -754,7 +743,7 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
             status: StatusReserva.APROVADA,
             dataHoraInicio: new Date("2026-10-20T07:00:00Z"),
             dataHoraFim: new Date("2026-10-20T07:50:00Z"),
-            sala: { predioId: salaMock.predioId, predio: { setorId: null } },
+            sala: { predioId: salaMock.predioId },
             solicitante: { id: atorProfessor.id, tipoCredencial: TipoCredencial.SIAPE_DOCENTE },
             responsavel: { id: atorProfessor.id, tipoCredencial: TipoCredencial.SIAPE_DOCENTE, departamentoId: "dep-1" },
           }),
@@ -857,7 +846,7 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
       $transaction: async (fn: any) => fn(prismaUsuarios),
       predio: {
         findUnique: async ({ where }: any) =>
-          where.id === predioTiId ? { id: predioTiId, nome: "Prédio TI", campusId: null, setorId: null } : null,
+          where.id === predioTiId ? { id: predioTiId, nome: "Prédio TI", campusId: null } : null,
       },
       usuario: {
         findFirst: async ({ where }: any) => {
@@ -882,7 +871,6 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
             nivelAcesso: data.nivelAcesso,
             ativo: true,
             criadoEm: new Date(),
-            cursoId: data.cursoId ?? null,
             departamentoId: data.departamentoId ?? null,
           };
           usuariosMem.set(id, criado);
@@ -893,7 +881,6 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
           if (!u) return null;
           return {
             ...u,
-            curso: null,
             departamento: null,
             lotacoesCoordenacao: lotacoesMem.filter((l) => l.docenteId === u.id),
           };
@@ -908,11 +895,9 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
             id: (userSeq++).toString(16).padStart(24, "0"),
             docenteId: data.docenteId,
             predioId: data.predioId,
-            setorId: data.setorId ?? null,
             numeroPortaria: data.numeroPortaria,
             ativo: true,
-            predio: { id: predioTiId, nome: "Prédio TI", campusId: null, setorId: null },
-            setor: null,
+            predio: { id: predioTiId, nome: "Prédio TI", campusId: null },
           };
           lotacoesMem.push(lot);
           return lot;
@@ -1037,7 +1022,7 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
       analisadoEm: aceitoEm,
       sala: {
         ...salaMock,
-        predio: { id: salaMock.predioId, nome: "Prédio CT", campusId: null, setorId: null, endereco: null },
+        predio: { id: salaMock.predioId, nome: "Prédio CT", campusId: null, endereco: null },
         recursos: [],
       },
       solicitante: { id: atorAluno.id, nome: atorAluno.nome, tipoCredencial: TipoCredencial.MATRICULA_ALUNO, nivelAcesso: 1 },
@@ -1066,7 +1051,7 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
     const escopo = new EscopoCoordenacaoService({
       listarPorDocente: async (docenteId: string) =>
         docenteId === idCoordA || docenteId === idCoordB
-          ? [{ predioId: salaMock.predioId, setorId: null, ativo: true }]
+          ? [{ predioId: salaMock.predioId, ativo: true }]
           : [],
     } as unknown as LotacoesRepository);
 
@@ -1090,7 +1075,7 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
     const prismaConflitoCoord = {
       $transaction: async (fn: any) => fn(prismaConflitoCoord),
       lotacaoCoordenacao: {
-        findMany: async () => [{ predioId: salaMock.predioId, setorId: null, ativo: true }],
+        findMany: async () => [{ predioId: salaMock.predioId, ativo: true }],
       },
       reserva: {
         findUnique: async () => ({
@@ -1156,7 +1141,7 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
         analisadoEm: null,
         sala: {
           ...salaMock,
-          predio: { id: salaMock.predioId, nome: "Prédio CT", campusId: null, setorId: null, endereco: null },
+          predio: { id: salaMock.predioId, nome: "Prédio CT", campusId: null, endereco: null },
           recursos: [],
         },
         solicitante: { id: atorAluno.id, nome: atorAluno.nome, tipoCredencial: TipoCredencial.MATRICULA_ALUNO, nivelAcesso: 1 },
@@ -1184,7 +1169,7 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
         analisadoEm: null,
         sala: {
           ...salaMock,
-          predio: { id: salaMock.predioId, nome: "Prédio CT", campusId: null, setorId: null, endereco: null },
+          predio: { id: salaMock.predioId, nome: "Prédio CT", campusId: null, endereco: null },
           recursos: [],
         },
         solicitante: { id: atorProfessor.id, nome: atorProfessor.nome, tipoCredencial: TipoCredencial.SIAPE_DOCENTE, nivelAcesso: 3 },
@@ -1260,11 +1245,11 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
     const predioBId = "64b7f0c2a1b2c3d4e5f600b2";
     const prismaEscopoPredio = {
       lotacaoCoordenacao: {
-        findMany: async () => [{ predioId: predioAId, setorId: null, ativo: true }],
+        findMany: async () => [{ predioId: predioAId, ativo: true }],
       },
       predio: {
         findUnique: async ({ where }: any) =>
-          where.id === predioBId ? { id: predioBId, nome: "Prédio B", campusId: null, setorId: null, endereco: null } : null,
+          where.id === predioBId ? { id: predioBId, nome: "Prédio B", campusId: null, endereco: null } : null,
       },
     } as unknown as PrismaClient;
 

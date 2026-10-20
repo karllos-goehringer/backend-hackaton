@@ -18,7 +18,6 @@ export interface PredioResumo {
   id: string;
   nome: string;
   campusId: string | null;
-  setorId: string | null;
   endereco: Endereco | null;
 }
 
@@ -35,14 +34,12 @@ export interface FiltrosListagemPredios {
 export interface CriarPredioDados {
   nome: string;
   campusId?: string | null;
-  setorId?: string | null;
   endereco?: Endereco | null;
 }
 
 export interface AtualizarPredioDados {
   nome?: string;
   campusId?: string | null;
-  setorId?: string | null;
   endereco?: Endereco | null;
 }
 
@@ -50,7 +47,6 @@ const SELECT_PREDIO_RESUMO = {
   id: true,
   nome: true,
   campusId: true,
-  setorId: true,
   endereco: true,
 } satisfies Prisma.PredioSelect;
 
@@ -109,7 +105,6 @@ export class PrediosRepository {
         id: predio.id,
         nome: predio.nome,
         campusId: predio.campusId,
-        setorId: predio.setorId,
         endereco: predio.endereco,
         salas: predio.salas.map(mapearSalaDoPredio),
       }));
@@ -143,7 +138,6 @@ export class PrediosRepository {
       id: predio.id,
       nome: predio.nome,
       campusId: predio.campusId,
-      setorId: predio.setorId,
       endereco: predio.endereco,
       salas: predio.salas.map(mapearSalaDoPredio),
     };
@@ -168,7 +162,6 @@ export class PrediosRepository {
       data: {
         nome: dados.nome,
         campusId: dados.campusId ?? null,
-        setorId: dados.setorId ?? null,
         endereco: dados.endereco ?? null,
       },
       select: SELECT_PREDIO_RESUMO,
@@ -181,7 +174,6 @@ export class PrediosRepository {
       data: {
         ...(dados.nome !== undefined ? { nome: dados.nome } : {}),
         ...(dados.campusId !== undefined ? { campusId: dados.campusId } : {}),
-        ...(dados.setorId !== undefined ? { setorId: dados.setorId } : {}),
         ...(dados.endereco !== undefined ? { endereco: dados.endereco } : {}),
       },
       select: SELECT_PREDIO_RESUMO,
@@ -196,4 +188,3 @@ export class PrediosRepository {
     await this.db.predio.delete({ where: { id } });
   }
 }
-

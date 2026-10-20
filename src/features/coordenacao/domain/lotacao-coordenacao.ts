@@ -2,7 +2,6 @@ import type { LocalizacaoSala } from "../../salas/salas.repository.js";
 
 export interface LotacaoCoordenacaoDados {
   predioId: string;
-  setorId: string | null;
   ativo: boolean;
   dataInicio?: Date;
   dataFim?: Date | null;
@@ -15,7 +14,7 @@ export function estaAtiva(lotacao: LotacaoCoordenacaoDados): boolean {
 
 /**
  * A lotacao cobre a sala estritamente quando pertence ao mesmo Predio coordenado.
- * Compartilhar unidade/setor de coordenacao nao concede acesso a outros predios.
+ * Compartilhar unidade/departamento de coordenacao nao concede acesso a outros predios.
  */
 export function cobreSala(lotacao: LotacaoCoordenacaoDados, sala: LocalizacaoSala): boolean {
   return lotacao.predioId === sala.predioId;

@@ -35,8 +35,8 @@ enum TipoEntradaCredencial {
   OAUTH
 }
 
-// Reserva agendada diretamente por um Professor; nao requer aprovacao da coordenacao.
-
+// Reserva agendada diretamente por Professor/Tecnico/Coordenador usa `AGENDADO` (nao requer aprovacao);
+// Reserva solicitada por Aluno inicia em `PENDENTE_APROVACAO` e transiciona para `APROVADA` no aceite do responsavel.
 enum StatusReserva {
   PENDENTE_APROVACAO
   APROVADA
@@ -76,38 +76,18 @@ model Campus {
   nome  String
   sigla String @unique
 
-  setores Setor[]
   predios Predio[]
 }
 
-model Setor {
-  id       String @id @default(auto()) @map("_id") @db.ObjectId
-  campusId String @db.ObjectId
-  nome     String
-  sigla    String
-
-  campus        Campus               @relation(fields: [campusId], references: [id], onDelete: Restrict)
-  predios       Predio[]
-  departamentos Departamento[]
-  cursos        Curso[]
-  lotacoes      LotacaoCoordenacao[]
-
-  @@unique([campusId, sigla])
-}
-
 model Departamento {
-  id      String @id @default(auto()) @map("_id") @db.ObjectId
-  setorId String @db.ObjectId
-  nome    String
+  id   String @id @default(auto()) @map("_id") @db.ObjectId
+  nome String @unique
 
-  setor    Setor     @relation(fields: [setorId], references: [id], onDelete: Restrict)
   docentes Usuario[]
-
-  @@unique([setorId, nome])
 }
 
 model CatalogoDepartamentosCoordenacao {
-  id            String                       @id @map("_id")
+  id            String                         @id @map("_id")
   departamentos DepartamentoElegivelCatalogo[]
 
   @@map("catalogo_departamentos_coordenacao")
@@ -120,37 +100,21 @@ type DepartamentoElegivelCatalogo {
   sigla     String?
 }
 
-model Curso {
-  id      String @id @default(auto()) @map("_id") @db.ObjectId
-  setorId String @db.ObjectId
-  nome    String
-
-  setor  Setor     @relation(fields: [setorId], references: [id], onDelete: Restrict)
-  alunos Usuario[]
-
-  @@unique([setorId, nome])
-}
-
-// Aluno e Docente na mesma colecao (discriminador `tipoCredencial`).
-// O papel de Coordenador NAO e persistido aqui: e derivado das lotacoes vigentes (Role Object).
+// Aluno e Servidor na mesma colecao (discriminador `tipoCredencial`).
+// O papel de Coordenador e persistido em `nivelAcesso = 4` e/ou derivado das lotacoes vigentes (Role Object).
 model Usuario {
   id                 String         @id @default(auto()) @map("_id") @db.ObjectId
   nome               String
   emailInstitucional String?
   telefone           String?
-  codigoLogin        String         @unique // Matricula (aluno) ou SIAPE (docente), normalizado
+  codigoLogin        String         @unique // Matricula (aluno) ou SIAPE (servidor), normalizado
   tipoCredencial     TipoCredencial
-  // Nivel base numerico: 0 aluno, 1 professor, 2 coordenador, 3 tecnico.
-  // Coordenacao vigente continua sendo derivada da lotacao (Role Object).
-  nivelAcesso        Int            @default(0)
+  // Nivel de acesso: 1 aluno, 2 tecnico, 3 professor, 4 coordenador.
+  nivelAcesso        Int            @default(1)
   ativo              Boolean        @default(true)
   criadoEm           DateTime       @default(now())
 
-  // Campos de Aluno (tipoCredencial = MATRICULA_ALUNO)
-  cursoId      String? @db.ObjectId
-  periodoAtual Int?
-
-  // Campos de Docente (tipoCredencial = SIAPE_DOCENTE)
+  // Campo opcional de Servidor (tipoCredencial = SIAPE_DOCENTE | SIAPE_TECNICO)
   departamentoId String? @db.ObjectId
 
   // Campo tecnico: incrementado na transacao de criacao de reserva de aluno para
@@ -159,7 +123,6 @@ model Usuario {
 
   credenciais Credencial[]
 
-  curso        Curso?        @relation(fields: [cursoId], references: [id])
   departamento Departamento? @relation(fields: [departamentoId], references: [id])
 
   lotacoesCoordenacao LotacaoCoordenacao[]
@@ -168,17 +131,16 @@ model Usuario {
   reservasResponsavel Reserva[]            @relation("Responsavel")
   reservasAnalisadas  Reserva[]            @relation("Analisador")
 
-  @@index([cursoId])
   @@index([departamentoId])
 }
 
 model Credencial {
-  id         String               @id @default(auto()) @map("_id") @db.ObjectId
-  usuarioId  String               @db.ObjectId
+  id          String                @id @default(auto()) @map("_id") @db.ObjectId
+  usuarioId   String                @db.ObjectId
   tipoEntrada TipoEntradaCredencial
-  entrada    String               @unique
-  senhaHash  String
-  criadoEm   DateTime             @default(now())
+  entrada     String                @unique
+  senhaHash   String
+  criadoEm    DateTime              @default(now())
 
   usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 
@@ -186,42 +148,36 @@ model Credencial {
   @@index([usuarioId])
 }
 
-// Vinculo ativo de um docente como coordenador de um Predio e, opcionalmente, de um Setor.
+// Vinculo ativo de um docente como coordenador de um Predio.
 // A funcao termina quando `ativo` e desativado; nao ha expiracao por data.
 model LotacaoCoordenacao {
   id             String  @id @default(auto()) @map("_id") @db.ObjectId
   docenteId      String  @db.ObjectId
   predioId       String  @db.ObjectId
-  setorId        String? @db.ObjectId
   numeroPortaria String
   ativo          Boolean @default(true)
 
   docente Usuario @relation(fields: [docenteId], references: [id], onDelete: Restrict)
   predio  Predio  @relation(fields: [predioId], references: [id], onDelete: Restrict)
-  setor   Setor?  @relation(fields: [setorId], references: [id], onDelete: Restrict)
 
   @@index([docenteId, ativo])
   @@index([predioId])
-  @@index([setorId])
 }
 
-// Diagrama: Predio { nome } 1 -- * Sala. Campus, setor e endereco sao opcionais porque o conjunto
+// Diagrama: Predio { nome } 1 -- * Sala. Campus e endereco sao opcionais porque o conjunto
 // inicial de dados (docs/skill_reservas.md + lista oficial) informa apenas o nome do predio.
-// Sem setor, a coordenacao do predio e resolvida somente por LotacaoCoordenacao.predioId.
+// A coordenacao do predio e resolvida diretamente por LotacaoCoordenacao.predioId.
 model Predio {
   id       String    @id @default(auto()) @map("_id") @db.ObjectId
   campusId String?   @db.ObjectId
-  setorId  String?   @db.ObjectId
   nome     String    @unique
   endereco Endereco? // embutido (composicao 1:1)
 
   campus   Campus?              @relation(fields: [campusId], references: [id], onDelete: Restrict)
-  setor    Setor?               @relation(fields: [setorId], references: [id], onDelete: Restrict)
   salas    Sala[]
   lotacoes LotacaoCoordenacao[]
 
   @@index([campusId])
-  @@index([setorId])
 }
 
 // Composite type: documento embutido, sem colecao propria.
@@ -292,21 +248,21 @@ model SerieRecorrencia {
 }
 
 model Reserva {
-  id                 String          @id @default(auto()) @map("_id") @db.ObjectId
-  salaId             String          @db.ObjectId
-  solicitanteId      String          @db.ObjectId
-  responsavelId      String          @db.ObjectId
-  analisadoPorId     String?         @db.ObjectId
-  serieRecorrenciaId String?         @db.ObjectId
-  tipoRecorrencia    TipoRecorrencia @default(UNICA)
-  dataHoraInicio     DateTime
-  dataHoraFim        DateTime
-  finalidade         String
-  observacoes        String?
-  status             StatusReserva   @default(PENDENTE_APROVACAO)
-  motivoRejeicao     String?
-  cancelamento       Cancelamento?
-  criadoEm                DateTime      @default(now())
+  id                      String          @id @default(auto()) @map("_id") @db.ObjectId
+  salaId                  String          @db.ObjectId
+  solicitanteId           String          @db.ObjectId
+  responsavelId           String          @db.ObjectId
+  analisadoPorId          String?         @db.ObjectId
+  serieRecorrenciaId      String?         @db.ObjectId
+  tipoRecorrencia         TipoRecorrencia @default(UNICA)
+  dataHoraInicio          DateTime
+  dataHoraFim             DateTime
+  finalidade              String
+  observacoes             String?
+  status                  StatusReserva   @default(PENDENTE_APROVACAO)
+  motivoRejeicao          String?
+  cancelamento            Cancelamento?
+  criadoEm                DateTime        @default(now())
   aceitoPeloResponsavelEm DateTime?
   analisadoEm             DateTime?
 
@@ -316,7 +272,7 @@ model Reserva {
   analisadoPor     Usuario?          @relation("Analisador", fields: [analisadoPorId], references: [id], onDelete: Restrict)
   serieRecorrencia SerieRecorrencia? @relation(fields: [serieRecorrenciaId], references: [id], onDelete: Restrict)
 
-  // Checagem de conflito de horario por sala (somente APROVADA bloqueia).
+  // Checagem de conflito de horario por sala (somente APROVADA/AGENDADO bloqueia).
   @@index([salaId, status, dataHoraInicio, dataHoraFim])
   // Quota de 12h do aluno (substitui o indice parcial do PostgreSQL).
   @@index([solicitanteId, status, criadoEm])

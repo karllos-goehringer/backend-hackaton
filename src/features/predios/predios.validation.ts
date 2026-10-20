@@ -63,6 +63,10 @@ export function validarFiltrosPredios(query: unknown): FiltrosListagemPredios {
   const erros: Erros = {};
   const filtros: FiltrosListagemPredios = {};
 
+  if (query.setorId !== undefined || query.setor !== undefined) {
+    erros.setorId = "O campo setor/setorId foi removido do modelo; predios possuem salas diretamente.";
+  }
+
   if (query.nome !== undefined) {
     if (typeof query.nome !== "string" || query.nome.trim() === "") {
       erros.nome = "Informe um termo de busca nao vazio.";
@@ -96,8 +100,8 @@ export function validarCriacaoPredio(corpo: unknown): CriarPredioDados {
   if (corpo.campusId !== undefined && corpo.campusId !== null && !ehObjectId(corpo.campusId)) {
     erros.campusId = "Id de campus invalido.";
   }
-  if (corpo.setorId !== undefined && corpo.setorId !== null && !ehObjectId(corpo.setorId)) {
-    erros.setorId = "Id de setor invalido.";
+  if (corpo.setorId !== undefined || corpo.setor !== undefined) {
+    erros.setorId = "O campo setor/setorId foi removido do modelo; predios possuem salas diretamente.";
   }
 
   const endereco = lerEndereco(corpo.endereco, erros);
@@ -109,7 +113,6 @@ export function validarCriacaoPredio(corpo: unknown): CriarPredioDados {
   return {
     nome,
     ...(corpo.campusId !== undefined ? { campusId: (corpo.campusId as string | null) ?? null } : {}),
-    ...(corpo.setorId !== undefined ? { setorId: (corpo.setorId as string | null) ?? null } : {}),
     ...(endereco !== undefined ? { endereco } : {}),
   };
 }
@@ -118,6 +121,10 @@ export function validarAtualizacaoPredio(corpo: unknown): AtualizarPredioDados {
   if (!ehObjeto(corpo)) throw new ValidationError("O corpo da requisicao deve ser um objeto JSON.");
   const erros: Erros = {};
   const dados: AtualizarPredioDados = {};
+
+  if (corpo.setorId !== undefined || corpo.setor !== undefined) {
+    erros.setorId = "O campo setor/setorId foi removido do modelo; predios possuem salas diretamente.";
+  }
 
   if (corpo.nome !== undefined) {
     if (typeof corpo.nome !== "string" || corpo.nome.trim() === "") {
@@ -135,14 +142,6 @@ export function validarAtualizacaoPredio(corpo: unknown): AtualizarPredioDados {
     }
   }
 
-  if (corpo.setorId !== undefined) {
-    if (corpo.setorId !== null && !ehObjectId(corpo.setorId)) {
-      erros.setorId = "Id de setor invalido.";
-    } else {
-      dados.setorId = (corpo.setorId as string | null) ?? null;
-    }
-  }
-
   const endereco = lerEndereco(corpo.endereco, erros);
   if (endereco !== undefined) dados.endereco = endereco;
 
@@ -156,4 +155,3 @@ export function validarAtualizacaoPredio(corpo: unknown): AtualizarPredioDados {
 
   return dados;
 }
-

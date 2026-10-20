@@ -18,7 +18,7 @@ export interface AtorReserva {
  * Contexto do Strategy + Role Object: escolhe a politica conforme o papel ativo do ator sobre a sala.
  * - Aluno (MATRICULA_ALUNO)                          -> PoliticaAlunoStrategy
  * - Tecnico (SIAPE_TECNICO)                          -> PoliticaTecnicoStrategy
- * - Docente com lotacao ativa no Predio/Setor        -> PoliticaCoordenadorStrategy
+ * - Docente com lotacao ativa no Predio              -> PoliticaCoordenadorStrategy
  * - Docente sem lotacao ativa sobre a sala           -> PoliticaProfessorStrategy
  */
 export class ResolvedorPoliticaReserva {

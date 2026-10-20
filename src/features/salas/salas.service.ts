@@ -132,7 +132,7 @@ export class SalasService {
 
     const lotacoes = await delegate.findMany({
       where: { docenteId: ator.id },
-      select: { predioId: true, setorId: true, ativo: true },
+      select: { predioId: true, ativo: true },
     });
     const ativas = lotacoes.filter((l) => estaAtiva(l));
     if (ativas.length > 0 && !ativas.some((l) => l.predioId === predioId)) {
