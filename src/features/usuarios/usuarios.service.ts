@@ -2,7 +2,9 @@ import { TipoCredencial, TipoEntradaCredencial, type PrismaClient } from "@prism
 import bcrypt from "bcryptjs";
 import { timingSafeEqual } from "node:crypto";
 import jwt from "jsonwebtoken";
-import { ConflictError, ForbiddenError, NotFoundError, UnauthorizedError, ValidationError } from "../../shared/errors/app-error.js";
+import { BusinessRuleError, ConflictError, ForbiddenError, NotFoundError, UnauthorizedError, ValidationError } from "../../shared/errors/app-error.js";
+import { ehObjectId } from "../../shared/validation/object-id.js";
+import type { AtorAutenticado } from "../autenticacao/autenticacao.middleware.js";
 import { executarTransacao } from "../../shared/database/transacao.js";
 import { NivelAcesso } from "./nivel-acesso.js";
 import type { CadastroUsuarioDTO, LotacaoCoordenacaoCadastroInput, PapelCadastroUsuario } from "./cadastro-usuario.dto.js";
@@ -303,6 +305,93 @@ export class UsuariosService {
         predio: lotacao.predio ?? null,
       })),
     };
+  }
+
+  async promoverCoordenador(
+    ator: AtorAutenticado,
+    usuarioId: string,
+    dados?: {
+      departamentoId?: string;
+      predioId?: string;
+      numeroPortaria?: string;
+    },
+  ) {
+    if (ator.nivelAcesso !== NivelAcesso.COORDENADOR) {
+      throw new ForbiddenError("Apenas coordenadores podem promover servidores a coordenacao.");
+    }
+
+    if (!ehObjectId(usuarioId)) {
+      throw new ValidationError("Id de usuario invalido.");
+    }
+
+    const usuario = await this.prisma.usuario.findUnique({
+      where: { id: usuarioId },
+      include: { departamento: true },
+    });
+
+    if (!usuario) {
+      throw new NotFoundError("Usuario nao encontrado.");
+    }
+
+    if (!usuario.ativo) {
+      throw new BusinessRuleError("Usuario inativo nao pode ser promovido.");
+    }
+
+    if (usuario.tipoCredencial === TipoCredencial.MATRICULA_ALUNO) {
+      throw new BusinessRuleError("Alunos nao podem ser promovidos a coordenacao.");
+    }
+
+    const departamentoIdFinal = dados?.departamentoId ? dados.departamentoId.trim() : usuario.departamentoId;
+
+    if (!departamentoIdFinal) {
+      throw new ValidationError(
+        "O servidor precisa ter um departamento vinculado para ser promovido a coordenacao. Informe departamentoId.",
+      );
+    }
+
+    if (!ehObjectId(departamentoIdFinal)) {
+      throw new ValidationError("departamentoId invalido.");
+    }
+
+    const deptoExiste = await this.prisma.departamento.findUnique({
+      where: { id: departamentoIdFinal },
+    });
+    if (!deptoExiste) {
+      throw new ValidationError("O departamento informado nao existe no sistema.");
+    }
+
+    if (dados?.predioId) {
+      const predioId = dados.predioId.trim();
+      if (!ehObjectId(predioId)) {
+        throw new ValidationError("predioId informado e invalido.");
+      }
+      const predioExiste = await this.prisma.predio.findUnique({
+        where: { id: predioId },
+      });
+      if (!predioExiste) {
+        throw new ValidationError("O predio informado para a coordenacao nao existe.");
+      }
+
+      const portaria = dados.numeroPortaria?.trim() || "PORTARIA-PROMOCAO";
+      await this.prisma.lotacaoCoordenacao.create({
+        data: {
+          docenteId: usuario.id,
+          predioId,
+          numeroPortaria: portaria,
+          ativo: true,
+        },
+      });
+    }
+
+    await this.prisma.usuario.update({
+      where: { id: usuario.id },
+      data: {
+        nivelAcesso: NivelAcesso.COORDENADOR,
+        departamentoId: departamentoIdFinal,
+      },
+    });
+
+    return this.buscarMeuPerfil(usuario.id);
   }
 
   private async validarReferencia(

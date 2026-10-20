@@ -29,12 +29,19 @@ export type NotificacaoEstadoReserva =
     });
 
 export interface NotificacaoCancelamento {
+  id?: string;
   tipo: TipoNotificacao.SOLICITACAO_CANCELAMENTO;
   reservaId: string;
   solicitadoPorId: string;
   coordenadorId?: string;
   departamentoId?: string;
   justificativa: string;
+  finalidade?: string;
+  status?: "PENDENTE" | "APROVADA" | "REJEITADA";
+  motivoRejeicao?: string;
+  analisadoPorId?: string;
+  analisadoEm?: Date;
+  novaReservaId?: string;
   criadoEm: Date;
 }
 

@@ -20,10 +20,10 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
         "3. Todas as rotas protegidas enviarão o cabeçalho `Authorization: Bearer <token>`.",
         "",
         "### Perfis de Acesso (`NivelAcesso`)",
-        "- `1` — **ALUNO** (`MATRICULA_ALUNO`): cadastra-se com `matricula` (8 a 15 caracteres; `email` e `telefone` opcionais). Solicita reservas com indicação obrigatória de servidor/coordenador responsável (`responsavelId`), antecedência mínima de 12h e limite de 2 reservas a cada 12h e 2 por dia (`status = PENDENTE_APROVACAO` até aceite do responsável).",
+        "- `1` — **ALUNO** (`MATRICULA_ALUNO`): cadastra-se com `matricula` (8 a 15 caracteres; `email` e `telefone` opcionais). Solicita reservas com indicação obrigatória de servidor/coordenador responsável (`responsavelId`), antecedência mínima de 12h e limite de no máximo 2 reservas ativas não concluídas (`status = PENDENTE_APROVACAO` até aceite do responsável -> `APROVADA`). Quando a reserva `APROVADA` do aluno alcança o dia/horário marcado (`dataHoraInicio <= agora`), ela transiciona automaticamente para `CONCLUIDA`, liberando o aluno para solicitar uma nova reserva.",
         "- `2` — **TECNICO** (`SIAPE_TECNICO`): cadastra-se com `siape` (6 a 7 dígitos numéricos). Cria reservas para si mesmo com agendamento imediato (`status = AGENDADO`), respeitando antecedência mínima de 12h e limite de 2 reservas a cada 12h e 2 por dia, ou atua como responsável por reserva de aluno.",
-        "- `3` — **PROFESSOR** (`SIAPE_DOCENTE`): cadastra-se com `siape` (6 a 7 dígitos numéricos). Cria reservas com agendamento imediato (`status = AGENDADO`), aceita reservas de alunos sob sua responsabilidade (`PATCH /reservas/:id/aceitar-responsabilidade` -> `status = APROVADA`) e pode solicitar à coordenação o cancelamento de reserva de aluno (`202 Accepted`).",
-        "- `4` — **COORDENADOR** (`SIAPE_DOCENTE` com papel/lotação de coordenação): cadastra-se com `siape` (6 a 7 dígitos numéricos) e vínculo a prédio(s) coordenado(s). Gerencia prédios e salas dentro de seu escopo territorial, cria séries recorrentes (`SEMANAL`, `MENSAL`, `SEMESTRAL`, `ANUAL`) com `status = APROVADA`, e aprova/rejeita/cancela reservas do seu prédio desde que não estejam sob a responsabilidade de outro coordenador.",
+        "- `3` — **PROFESSOR** (`SIAPE_DOCENTE`): cadastra-se com `siape` (6 a 7 dígitos numéricos) e `departamentoId`. Cria reservas com agendamento imediato (`status = AGENDADO`), aceita reservas de alunos sob sua responsabilidade (`PATCH /reservas/:id/aceitar-responsabilidade` -> `status = APROVADA`), cancela apenas a própria reserva e possui endpoint exclusivo (`POST /cancelamentos/:id/solicitar`) para solicitar ao coordenador o cancelamento/substituição de reserva de aluno (`202 Accepted`).",
+        "- `4` — **COORDENADOR** (`SIAPE_DOCENTE` com papel/lotação de coordenação): cadastra-se com `siape` (6 a 7 dígitos numéricos) e `departamentoId` (sem hierarquia por prédio). Cria reservas únicas ou séries recorrentes (`SEMANAL`, `MENSAL`, `SEMESTRAL`, `ANUAL`) com `status = APROVADA`, pode cancelar reservas de aluno, técnico e professor quando quiser (exceto reservas de outro coordenador), e aprova (`POST /cancelamentos/solicitacoes/:id/aprovar`) ou rejeita (`POST /cancelamentos/solicitacoes/:id/rejeitar`) pedidos de substituição feitos por professores sobre reservas de alunos.",
         "",
         "### Regras Gerais de Agendamento",
         "- **Duração fixa do turno:** toda reserva deve ter exatamente **50 minutos** (`dataHoraFim - dataHoraInicio = 50 min`).",
@@ -69,6 +69,10 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
       {
         name: "Cancelamentos",
         description: "Cancelamento de reservas e consulta de solicitações de cancelamento enviadas por professores à coordenação.",
+      },
+      {
+        name: "Coordenação",
+        description: "Gestão institucional de lotações de coordenação e promoção de servidores a coordenador.",
       },
     ],
     components: {
@@ -469,7 +473,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
         },
         CadastroCoordenadorInput: {
           type: "object",
-          required: ["nome", "siape", "senha", "predioId"],
+          required: ["nome", "siape", "senha", "departamentoId"],
           properties: {
             nome: {
               type: "string",
@@ -1203,7 +1207,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
         },
         CriarReservaInput: {
           type: "object",
-          required: ["salaId", "dataHoraInicio", "dataHoraFim", "finalidade"],
+          required: ["salaId", "dataHoraInicio", "dataHoraFim"],
           properties: {
             salaId: {
               type: "string",
@@ -1282,6 +1286,32 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             justificativa: "Cancelamento solicitado devido a alteração imprevista no calendário acadêmico.",
           },
         },
+        SolicitarCancelamentoProfessorInput: {
+          type: "object",
+          required: ["justificativa"],
+          properties: {
+            justificativa: {
+              type: "string",
+              description: "Justificativa do professor para solicitar o cancelamento e assumir a reserva do aluno.",
+              example: "Necessidade do laboratório para aplicação de prova prática da disciplina.",
+            },
+            finalidade: {
+              type: "string",
+              description: "Finalidade opcional da nova reserva que será criada em nome do professor caso aprovada pelo coordenador.",
+              example: "Prova prática de Redes de Computadores",
+            },
+          },
+        },
+        RejeitarSolicitacaoCancelamentoInput: {
+          type: "object",
+          properties: {
+            motivo: {
+              type: "string",
+              description: "Motivo opcional da rejeição pelo coordenador.",
+              example: "A reserva do aluno foi agendada previamente para apresentação de TCC.",
+            },
+          },
+        },
         ResultadoCancelamento: {
           type: "object",
           required: ["reserva", "solicitacaoEnviada", "mensagem"],
@@ -1294,9 +1324,38 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               type: "boolean",
               example: false,
             },
+            solicitacao: {
+              allOf: [{ $ref: "#/components/schemas/NotificacaoCancelamento" }],
+              nullable: true,
+            },
             mensagem: {
               type: "string",
               example: "Reserva cancelada com sucesso.",
+            },
+          },
+        },
+        ResultadoAprovacaoCancelamentoProfessor: {
+          type: "object",
+          required: ["solicitacao", "reservaCancelada", "novaReserva", "mensagem"],
+          properties: {
+            solicitacao: { $ref: "#/components/schemas/NotificacaoCancelamento" },
+            reservaCancelada: { $ref: "#/components/schemas/Reserva" },
+            novaReserva: { $ref: "#/components/schemas/Reserva" },
+            mensagem: {
+              type: "string",
+              example: "Solicitacao do professor aprovada pelo coordenador: reserva do aluno cancelada e nova reserva criada para o professor.",
+            },
+          },
+        },
+        ResultadoRejeicaoCancelamentoProfessor: {
+          type: "object",
+          required: ["solicitacao", "reservaMantida", "mensagem"],
+          properties: {
+            solicitacao: { $ref: "#/components/schemas/NotificacaoCancelamento" },
+            reservaMantida: { $ref: "#/components/schemas/Reserva" },
+            mensagem: {
+              type: "string",
+              example: "Solicitacao do professor rejeitada pelo coordenador: a reserva se mantem para o aluno.",
             },
           },
         },
@@ -1304,6 +1363,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           type: "object",
           required: ["tipo", "reservaId", "solicitadoPorId", "justificativa", "criadoEm"],
           properties: {
+            id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60901" },
             tipo: {
               type: "string",
               enum: ["SOLICITACAO_CANCELAMENTO"],
@@ -1313,7 +1373,124 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             solicitadoPorId: { type: "string", example: "64b7f0c2a1b2c3d4e5f60999" },
             departamentoId: { type: "string", nullable: true, example: "64b7f0c2a1b2c3d4e5f60444" },
             justificativa: { type: "string", example: "Conflito com avaliação departamental." },
+            finalidade: { type: "string", nullable: true, example: "Avaliação prática de Redes" },
+            status: {
+              type: "string",
+              enum: ["PENDENTE", "APROVADA", "REJEITADA"],
+              example: "PENDENTE",
+            },
+            motivoRejeicao: { type: "string", nullable: true, example: null },
+            analisadoPorId: { type: "string", nullable: true, example: null },
+            analisadoEm: { type: "string", format: "date-time", nullable: true, example: null },
+            novaReservaId: { type: "string", nullable: true, example: null },
             criadoEm: { type: "string", format: "date-time", example: "2026-10-20T14:00:00.000Z" },
+          },
+        },
+        PromoverCoordenadorInput: {
+          type: "object",
+          properties: {
+            departamentoId: {
+              type: "string",
+              pattern: "^[a-fA-F0-9]{24}$",
+              description: "Id do departamento institucional (obrigatório caso o servidor ainda não possua departamento vinculado).",
+              example: "64b7f0c2a1b2c3d4e5f60002",
+            },
+            predioId: {
+              type: "string",
+              pattern: "^[a-fA-F0-9]{24}$",
+              nullable: true,
+              description: "Opcional: vincula o coordenador a um prédio institucional.",
+              example: "64b7f0c2a1b2c3d4e5f60015",
+            },
+            numeroPortaria: {
+              type: "string",
+              nullable: true,
+              description: "Opcional: portaria de designação da promoção.",
+              example: "PORTARIA-IFES-2026-PROMOCAO",
+            },
+          },
+        },
+        CriarCoordenacaoInput: {
+          type: "object",
+          required: ["docenteId", "predioId"],
+          properties: {
+            docenteId: {
+              type: "string",
+              pattern: "^[a-fA-F0-9]{24}$",
+              description: "ObjectId do servidor/docente que receberá a lotação.",
+              example: "64b7f0c2a1b2c3d4e5f60002",
+            },
+            predioId: {
+              type: "string",
+              pattern: "^[a-fA-F0-9]{24}$",
+              description: "ObjectId do prédio sob coordenação.",
+              example: "64b7f0c2a1b2c3d4e5f60015",
+            },
+            numeroPortaria: {
+              type: "string",
+              nullable: true,
+              description: "Portaria de designação.",
+              example: "PORTARIA-IFES-2026-01",
+            },
+            ativo: {
+              type: "boolean",
+              default: true,
+              example: true,
+            },
+          },
+        },
+        AtualizarCoordenacaoInput: {
+          type: "object",
+          properties: {
+            docenteId: {
+              type: "string",
+              pattern: "^[a-fA-F0-9]{24}$",
+              description: "ObjectId do servidor/docente.",
+              example: "64b7f0c2a1b2c3d4e5f60002",
+            },
+            predioId: {
+              type: "string",
+              pattern: "^[a-fA-F0-9]{24}$",
+              description: "ObjectId do prédio.",
+              example: "64b7f0c2a1b2c3d4e5f60015",
+            },
+            numeroPortaria: {
+              type: "string",
+              example: "PORTARIA-IFES-2026-02",
+            },
+            ativo: {
+              type: "boolean",
+              example: false,
+            },
+          },
+        },
+        LotacaoCoordenacaoDetalhada: {
+          type: "object",
+          required: ["id", "docenteId", "predioId", "numeroPortaria", "ativo", "coordenador", "predio"],
+          properties: {
+            id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60555" },
+            docenteId: { type: "string", example: "64b7f0c2a1b2c3d4e5f60002" },
+            predioId: { type: "string", example: "64b7f0c2a1b2c3d4e5f60015" },
+            numeroPortaria: { type: "string", example: "PORTARIA-IFES-2026-01" },
+            ativo: { type: "boolean", example: true },
+            coordenador: {
+              type: "object",
+              properties: {
+                id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60002" },
+                nome: { type: "string", example: "Carlos Coordenador" },
+                codigoLogin: { type: "string", example: "1234567" },
+                emailInstitucional: { type: "string", nullable: true, example: "carlos@ifes.edu.br" },
+                tipoCredencial: { type: "string", example: "SIAPE_DOCENTE" },
+              },
+            },
+            predio: {
+              type: "object",
+              properties: {
+                id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60015" },
+                nome: { type: "string", example: "Prédio Principal" },
+                campusId: { type: "string", nullable: true, example: null },
+              },
+            },
           },
         },
       },
@@ -2029,6 +2206,363 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
                   schema: { $ref: "#/components/schemas/ErroPadrao" },
                 },
               },
+            },
+          },
+        },
+      },
+      "/usuarios/{id}/promover-coordenador": {
+        patch: {
+          tags: ["Usuários", "Coordenação"],
+          summary: "Promover servidor a coordenador",
+          description:
+            "Permite a um coordenador autenticado promover um servidor ativo (PROFESSOR ou TECNICO) à função de COORDENADOR (nível de acesso 4). O servidor deve possuir departamento vinculado (já existente no perfil ou informado no corpo). Opcionalmente pode atribuir lotação a um prédio.",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              description: "ObjectId do servidor a ser promovido.",
+              schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$", example: "64b7f0c2a1b2c3d4e5f60002" },
+            },
+          ],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/PromoverCoordenadorInput" },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Servidor promovido a coordenador com sucesso.",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/PerfilUsuario" },
+                },
+              },
+            },
+            "400": {
+              description: "Dados inválidos ou ausência de departamento (`VALIDACAO`).",
+              content: { "application/json": { schema: { $ref: "#/components/schemas/ErroPadrao" } } },
+            },
+            "401": {
+              description: "Token ausente ou inválido (`NAO_AUTENTICADO`).",
+              content: { "application/json": { schema: { $ref: "#/components/schemas/ErroPadrao" } } },
+            },
+            "403": {
+              description: "Apenas coordenadores podem promover servidores (`PROIBIDO`).",
+              content: { "application/json": { schema: { $ref: "#/components/schemas/ErroPadrao" } } },
+            },
+            "404": {
+              description: "Servidor não encontrado (`NAO_ENCONTRADO`).",
+              content: { "application/json": { schema: { $ref: "#/components/schemas/ErroPadrao" } } },
+            },
+          },
+        },
+        post: {
+          tags: ["Usuários", "Coordenação"],
+          summary: "Promover servidor a coordenador (alias POST)",
+          description: "Alias POST para promoção de servidor à função de COORDENADOR.",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              description: "ObjectId do servidor a ser promovido.",
+              schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$", example: "64b7f0c2a1b2c3d4e5f60002" },
+            },
+          ],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/PromoverCoordenadorInput" },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Servidor promovido a coordenador com sucesso.",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/PerfilUsuario" },
+                },
+              },
+            },
+            "400": {
+              description: "Dados inválidos (`VALIDACAO`).",
+              content: { "application/json": { schema: { $ref: "#/components/schemas/ErroPadrao" } } },
+            },
+            "403": {
+              description: "Apenas coordenadores podem promover servidores (`PROIBIDO`).",
+              content: { "application/json": { schema: { $ref: "#/components/schemas/ErroPadrao" } } },
+            },
+          },
+        },
+      },
+      "/coordenacoes": {
+        get: {
+          tags: ["Coordenação"],
+          summary: "Listar lotações de coordenação",
+          description: "Lista as lotações de coordenação cadastradas, com filtros opcionais por docente, prédio e status ativo.",
+          security: [],
+          parameters: [
+            {
+              name: "docenteId",
+              in: "query",
+              required: false,
+              description: "Filtra por ObjectId do coordenador.",
+              schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
+            },
+            {
+              name: "predioId",
+              in: "query",
+              required: false,
+              description: "Filtra por ObjectId do prédio.",
+              schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
+            },
+            {
+              name: "ativo",
+              in: "query",
+              required: false,
+              description: "Filtra por lotações ativas (`true`) ou inativas (`false`).",
+              schema: { type: "boolean" },
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Lista de lotações de coordenação.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/LotacaoCoordenacaoDetalhada" },
+                  },
+                },
+              },
+            },
+          },
+        },
+        post: {
+          tags: ["Coordenação"],
+          summary: "Criar lotação de coordenação para servidor",
+          description: "Atribui uma lotação de coordenação vinculando um servidor a um prédio institucional. Requer privilégio de COORDENADOR.",
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/CriarCoordenacaoInput" },
+              },
+            },
+          },
+          responses: {
+            "201": {
+              description: "Lotação de coordenação criada com sucesso.",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/LotacaoCoordenacaoDetalhada" },
+                },
+              },
+            },
+            "400": {
+              description: "Dados inválidos (`VALIDACAO`).",
+              content: { "application/json": { schema: { $ref: "#/components/schemas/ErroPadrao" } } },
+            },
+            "403": {
+              description: "Apenas coordenadores podem atribuir lotações (`PROIBIDO`).",
+              content: { "application/json": { schema: { $ref: "#/components/schemas/ErroPadrao" } } },
+            },
+            "404": {
+              description: "Docente ou prédio não encontrado (`NAO_ENCONTRADO`).",
+              content: { "application/json": { schema: { $ref: "#/components/schemas/ErroPadrao" } } },
+            },
+          },
+        },
+      },
+      "/coordenacoes/promover": {
+        post: {
+          tags: ["Coordenação"],
+          summary: "Promover servidor a coordenador",
+          description: "Endpoint direto em `/coordenacoes` para promoção de servidor (PROFESSOR ou TECNICO) à coordenação.",
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["usuarioId"],
+                  properties: {
+                    usuarioId: { type: "string", pattern: "^[a-fA-F0-9]{24}$", example: "64b7f0c2a1b2c3d4e5f60002" },
+                    departamentoId: { type: "string", pattern: "^[a-fA-F0-9]{24}$", example: "64b7f0c2a1b2c3d4e5f60103" },
+                    predioId: { type: "string", pattern: "^[a-fA-F0-9]{24}$", example: "64b7f0c2a1b2c3d4e5f60015" },
+                    numeroPortaria: { type: "string", example: "PORTARIA-IFES-2026-PROMOCAO" },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Servidor promovido com sucesso.",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/PerfilUsuario" },
+                },
+              },
+            },
+            "400": {
+              description: "Dados inválidos (`VALIDACAO`).",
+              content: { "application/json": { schema: { $ref: "#/components/schemas/ErroPadrao" } } },
+            },
+            "403": {
+              description: "Apenas coordenadores podem promover servidores (`PROIBIDO`).",
+              content: { "application/json": { schema: { $ref: "#/components/schemas/ErroPadrao" } } },
+            },
+          },
+        },
+      },
+      "/coordenacoes/{id}": {
+        get: {
+          tags: ["Coordenação"],
+          summary: "Consultar lotação de coordenação por ID",
+          description: "Retorna os detalhes de uma lotação de coordenação específica.",
+          security: [],
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              description: "ObjectId da lotação.",
+              schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Detalhes da lotação.",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/LotacaoCoordenacaoDetalhada" },
+                },
+              },
+            },
+            "404": {
+              description: "Lotação não encontrada (`NAO_ENCONTRADO`).",
+              content: { "application/json": { schema: { $ref: "#/components/schemas/ErroPadrao" } } },
+            },
+          },
+        },
+        patch: {
+          tags: ["Coordenação"],
+          summary: "Atualizar lotação de coordenação",
+          description: "Permite alterar campos parciais da lotação (número de portaria, status ativo, etc.). Requer COORDENADOR.",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              description: "ObjectId da lotação.",
+              schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/AtualizarCoordenacaoInput" },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Lotação atualizada com sucesso.",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/LotacaoCoordenacaoDetalhada" },
+                },
+              },
+            },
+            "400": {
+              description: "Dados inválidos (`VALIDACAO`).",
+              content: { "application/json": { schema: { $ref: "#/components/schemas/ErroPadrao" } } },
+            },
+            "403": {
+              description: "Apenas coordenadores podem atualizar lotações (`PROIBIDO`).",
+              content: { "application/json": { schema: { $ref: "#/components/schemas/ErroPadrao" } } },
+            },
+            "404": {
+              description: "Lotação não encontrada (`NAO_ENCONTRADO`).",
+              content: { "application/json": { schema: { $ref: "#/components/schemas/ErroPadrao" } } },
+            },
+          },
+        },
+        put: {
+          tags: ["Coordenação"],
+          summary: "Substituir lotação de coordenação (atualização completa)",
+          description: "Substitui os dados da lotação de coordenação de forma idempotente.",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              description: "ObjectId da lotação.",
+              schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/CriarCoordenacaoInput" },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Lotação atualizada com sucesso.",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/LotacaoCoordenacaoDetalhada" },
+                },
+              },
+            },
+            "403": {
+              description: "Apenas coordenadores podem atualizar lotações (`PROIBIDO`).",
+              content: { "application/json": { schema: { $ref: "#/components/schemas/ErroPadrao" } } },
+            },
+          },
+        },
+        delete: {
+          tags: ["Coordenação"],
+          summary: "Remover lotação de coordenação",
+          description: "Remove um registro de lotação de coordenação do sistema. Requer COORDENADOR.",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              description: "ObjectId da lotação a ser removida.",
+              schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
+            },
+          ],
+          responses: {
+            "204": {
+              description: "Lotação removida com sucesso (sem conteúdo).",
+            },
+            "403": {
+              description: "Apenas coordenadores podem remover lotações (`PROIBIDO`).",
+              content: { "application/json": { schema: { $ref: "#/components/schemas/ErroPadrao" } } },
+            },
+            "404": {
+              description: "Lotação não encontrada (`NAO_ENCONTRADO`).",
+              content: { "application/json": { schema: { $ref: "#/components/schemas/ErroPadrao" } } },
             },
           },
         },
@@ -2843,8 +3377,8 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             "Cria uma reserva única ou uma série recorrente conforme o perfil do usuário autenticado:",
             "- **Professor (`PROFESSOR`):** nasce `AGENDADO` imediatamente, sem necessidade de aprovação de outra pessoa, validando ausência de conflito na sala.",
             "- **Técnico (`TECNICO`):** nasce `AGENDADO` imediatamente, sem necessidade de aprovação de outra pessoa, respeitando 12h de antecedência e limite de 2 reservas/12h e 2/dia.",
-            "- **Coordenador (`COORDENADOR`, no prédio coordenado):** nasce `APROVADA` imediatamente, podendo criar série recorrente (`recorrencia`).",
-            "- **Aluno (`ALUNO`):** nasce `PENDENTE_APROVACAO`, exige informar `responsavelId` (Servidor ou Coordenador ativo), 12h de antecedência e limite de 2 reservas/12h e 2/dia.",
+            "- **Coordenador (`COORDENADOR`):** nasce `APROVADA` imediatamente em qualquer sala (sem hierarquia por prédio), podendo criar série recorrente (`recorrencia`).",
+            "- **Aluno (`ALUNO`):** nasce `PENDENTE_APROVACAO`, exige informar `responsavelId` (Servidor ou Coordenador ativo), 12h de antecedência e limite de até 2 reservas ativas não concluídas (reservas `APROVADA` que alcançam seu horário de início passam para `CONCLUIDA`, liberando vaga para nova reserva).",
           ].join("\n"),
           security: [{ bearerAuth: [] }],
           requestBody: {
@@ -3371,7 +3905,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             "Cancela uma reserva antes do seu horário de início (`agora < dataHoraInicio`) ou registra solicitação de cancelamento:",
             "- **Aluno / Técnico:** cancela apenas a própria reserva (`200 OK`).",
             "- **Professor:** cancela a própria reserva (`200 OK`) ou, tratando-se de reserva de aluno, registra solicitação para o coordenador do departamento do responsável (`202 Accepted`).",
-            "- **Coordenador:** cancela reservas do seu prédio coordenado (`200 OK`), exceto reservas sob responsabilidade de outro coordenador (`403 PERMISSAO_NEGADA`).",
+            "- **Coordenador:** cancela reservas de aluno, técnico e professor quando quiser (`200 OK`), exceto reservas que pertencem a outro coordenador (`403 PERMISSAO_NEGADA`).",
           ].join("\n"),
           security: [{ bearerAuth: [] }],
           parameters: [{ $ref: "#/components/parameters/ObjectIdPathParam" }],
@@ -3443,6 +3977,185 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             },
             "422": {
               description: "Horário da reserva já iniciou (`REGRA_DE_NEGOCIO`).",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErroPadrao" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/cancelamentos/{id}/solicitar": {
+        post: {
+          tags: ["Cancelamentos"],
+          summary: "Solicitar cancelamento/substituição de reserva de aluno (Exclusivo para Professor)",
+          description: [
+            "Endpoint exclusivo para **Professor (`PROFESSOR`)** solicitar à coordenação o cancelamento de uma reserva cujo solicitante é um **Aluno (`ALUNO`)**.",
+            "- A solicitação fica pendente para avaliação de qualquer **Coordenador (`COORDENADOR`)**.",
+            "- Caso o coordenador **aprove** (`POST /cancelamentos/solicitacoes/:id/aprovar`), a reserva do aluno é cancelada (`CANCELADA`) e uma **nova reserva** é criada automaticamente para a mesma sala e horário tendo o professor como `solicitante` e `responsavel` (`status = AGENDADO`).",
+            "- Caso o coordenador **rejeite** (`POST /cancelamentos/solicitacoes/:id/rejeitar`), a reserva é mantida inalterada para o aluno.",
+          ].join("\n"),
+          security: [{ bearerAuth: [] }],
+          parameters: [{ $ref: "#/components/parameters/ObjectIdPathParam" }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SolicitarCancelamentoProfessorInput" },
+              },
+            },
+          },
+          responses: {
+            "202": {
+              description: "Solicitação de cancelamento/substituição registrada e enviada ao coordenador.",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ResultadoCancelamento" },
+                },
+              },
+            },
+            "400": {
+              description: "ID inválido ou justificativa ausente (`VALIDACAO`).",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErroPadrao" },
+                },
+              },
+            },
+            "401": {
+              description: "Não autenticado (`NAO_AUTENTICADO`).",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErroPadrao" },
+                },
+              },
+            },
+            "403": {
+              description: "Usuário não é professor ou a reserva alvo não pertence a um aluno solicitante (`PERMISSAO_NEGADA`).",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErroPadrao" },
+                },
+              },
+            },
+            "404": {
+              description: "Reserva não encontrada (`NAO_ENCONTRADO`).",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErroPadrao" },
+                },
+              },
+            },
+            "409": {
+              description: "Reserva já cancelada, rejeitada ou concluída (`CONFLITO`).",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErroPadrao" },
+                },
+              },
+            },
+            "422": {
+              description: "Horário da reserva já iniciou (`REGRA_DE_NEGOCIO`).",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErroPadrao" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/cancelamentos/solicitacoes/{id}/aprovar": {
+        post: {
+          tags: ["Cancelamentos"],
+          summary: "Aprovar solicitação de professor sobre reserva de aluno (Exclusivo para Coordenador)",
+          description: [
+            "Aprova a solicitação do professor (informe em `:id` o `id` da solicitação ou o `reservaId` da reserva do aluno):",
+            "1. Cancela a reserva original do aluno (`status = CANCELADA`).",
+            "2. Cria uma nova reserva no mesmo horário e sala com o professor solicitante como `solicitanteId` e `responsavelId` (`status = AGENDADO`).",
+          ].join("\n"),
+          security: [{ bearerAuth: [] }],
+          parameters: [{ $ref: "#/components/parameters/ObjectIdPathParam" }],
+          responses: {
+            "200": {
+              description: "Solicitação aprovada: reserva do aluno cancelada e nova reserva criada para o professor.",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ResultadoAprovacaoCancelamentoProfessor" },
+                },
+              },
+            },
+            "401": {
+              description: "Não autenticado (`NAO_AUTENTICADO`).",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErroPadrao" },
+                },
+              },
+            },
+            "403": {
+              description: "Apenas coordenadores podem aprovar solicitações (`PERMISSAO_NEGADA`).",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErroPadrao" },
+                },
+              },
+            },
+            "404": {
+              description: "Solicitação ou reserva não encontrada (`NAO_ENCONTRADO`).",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErroPadrao" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/cancelamentos/solicitacoes/{id}/rejeitar": {
+        post: {
+          tags: ["Cancelamentos"],
+          summary: "Rejeitar solicitação de professor sobre reserva de aluno (Exclusivo para Coordenador)",
+          description:
+            "Rejeita o pedido do professor (informe em `:id` o `id` da solicitação ou o `reservaId` da reserva do aluno). A reserva se mantém ativa e inalterada para o aluno.",
+          security: [{ bearerAuth: [] }],
+          parameters: [{ $ref: "#/components/parameters/ObjectIdPathParam" }],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/RejeitarSolicitacaoCancelamentoInput" },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Solicitação rejeitada e reserva mantida para o aluno.",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ResultadoRejeicaoCancelamentoProfessor" },
+                },
+              },
+            },
+            "401": {
+              description: "Não autenticado (`NAO_AUTENTICADO`).",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErroPadrao" },
+                },
+              },
+            },
+            "403": {
+              description: "Apenas coordenadores podem rejeitar solicitações (`PERMISSAO_NEGADA`).",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErroPadrao" },
+                },
+              },
+            },
+            "404": {
+              description: "Solicitação ou reserva não encontrada (`NAO_ENCONTRADO`).",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErroPadrao" },

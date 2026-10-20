@@ -87,7 +87,7 @@ export class PrediosService {
     const atual = await predios.buscarResumoPorId(id);
     if (!atual) throw new NotFoundError("Predio nao encontrado.");
 
-    await this.garantirEscopoPredioCoordenador(ator, id);
+
 
     if (dados.nome !== undefined && dados.nome !== atual.nome) {
       const duplicado = await predios.buscarPorNome(dados.nome);
@@ -106,7 +106,7 @@ export class PrediosService {
     const atual = await predios.buscarResumoPorId(id);
     if (!atual) throw new NotFoundError("Predio nao encontrado.");
 
-    await this.garantirEscopoPredioCoordenador(ator, id);
+
 
     const totalSalas = await predios.contarSalasPorPredio(id);
     if (totalSalas > 0) {

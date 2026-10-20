@@ -110,7 +110,14 @@ export function validarCriacaoReserva(corpo: unknown): NovaReservaCommand {
   if (!ehObjectId(corpo.salaId)) erros.salaId = "Informe um id de sala valido.";
   const dataHoraInicio = lerDataHora(corpo.dataHoraInicio, "dataHoraInicio", erros);
   const dataHoraFim = lerDataHora(corpo.dataHoraFim, "dataHoraFim", erros);
-  const finalidade = lerTextoObrigatorio(corpo.finalidade, "finalidade", erros);
+  let finalidade = "Reserva de sala";
+  if (corpo.finalidade !== undefined && corpo.finalidade !== null) {
+    if (typeof corpo.finalidade !== "string") {
+      erros.finalidade = "Deve ser texto.";
+    } else if (corpo.finalidade.trim().length > 0) {
+      finalidade = corpo.finalidade.trim();
+    }
+  }
 
   if (corpo.responsavelId !== undefined && !ehObjectId(corpo.responsavelId)) {
     erros.responsavelId = "Informe um id de usuario valido.";
@@ -118,7 +125,7 @@ export function validarCriacaoReserva(corpo: unknown): NovaReservaCommand {
   const observacoes = typeof corpo.observacoes === "string" ? corpo.observacoes.trim() : undefined;
   const recorrencia = corpo.recorrencia === undefined ? undefined : lerRecorrencia(corpo.recorrencia, erros);
 
-  if (Object.keys(erros).length > 0 || !dataHoraInicio || !dataHoraFim || !finalidade) {
+  if (Object.keys(erros).length > 0 || !dataHoraInicio || !dataHoraFim) {
     throw new ValidationError("Dados da reserva invalidos.", erros);
   }
 

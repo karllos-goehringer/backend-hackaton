@@ -3,6 +3,11 @@ import { obterAtor } from "../autenticacao/autenticacao.middleware.js";
 import type { CadastroUsuarioDTO } from "./cadastro-usuario.dto.js";
 import type { UsuariosService } from "./usuarios.service.js";
 
+function obterIdParam(param: string | string[] | undefined): string {
+  if (Array.isArray(param)) return param[0] ?? "";
+  return typeof param === "string" ? param : "";
+}
+
 export class UsuariosController {
   constructor(private readonly service: UsuariosService) {}
 
@@ -87,5 +92,17 @@ export class UsuariosController {
     const departamentoId = typeof request.query.departamentoId === "string" ? request.query.departamentoId : undefined;
     const servidores = await this.service.listarServidores({ role: "COORDENADOR", predioId, departamentoId });
     response.status(200).json(servidores);
+  };
+
+  promoverCoordenador = async (request: Request, response: Response): Promise<void> => {
+    const ator = obterAtor(request);
+    const id = obterIdParam(request.params.id);
+    const body = request.body as {
+      departamentoId?: string;
+      predioId?: string;
+      numeroPortaria?: string;
+    };
+    const perfilAtualizado = await this.service.promoverCoordenador(ator, id, body);
+    response.status(200).json(perfilAtualizado);
   };
 }

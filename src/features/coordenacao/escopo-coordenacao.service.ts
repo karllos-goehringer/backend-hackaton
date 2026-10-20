@@ -1,9 +1,10 @@
 import type { LocalizacaoSala } from "../salas/salas.repository.js";
-import { cobreSala, estaAtiva, type LotacaoCoordenacaoDados } from "./domain/lotacao-coordenacao.js";
+import { estaAtiva, type LotacaoCoordenacaoDados } from "./domain/lotacao-coordenacao.js";
 import type { LotacoesRepository } from "./lotacoes.repository.js";
 
 /**
- * Responde se um docente/coordenador possui lotacao ativa de coordenacao sobre o predio/sala.
+ * Responde se um docente/servidor possui lotacao ativa de coordenacao.
+ * A hierarquia de coordenador e institucional e nao e mais separada por predio/predios.
  */
 export class EscopoCoordenacaoService {
   constructor(private readonly lotacoes: LotacoesRepository) {}
@@ -21,14 +22,17 @@ export class EscopoCoordenacaoService {
     return [];
   }
 
-  async coordenaSala(docenteId: string, sala: LocalizacaoSala): Promise<boolean> {
+  async ehCoordenadorAtivo(docenteId: string): Promise<boolean> {
     const lotacoes = await this.obterLotacoes(docenteId);
-    return lotacoes.some((lotacao) => estaAtiva(lotacao) && cobreSala(lotacao, sala));
+    return lotacoes.some((lotacao) => estaAtiva(lotacao));
   }
 
-  async coordenaPredio(docenteId: string, predioId: string): Promise<boolean> {
-    const lotacoes = await this.obterLotacoes(docenteId);
-    return lotacoes.some((lotacao) => estaAtiva(lotacao) && lotacao.predioId === predioId);
+  async coordenaSala(docenteId: string, _sala?: LocalizacaoSala): Promise<boolean> {
+    return this.ehCoordenadorAtivo(docenteId);
+  }
+
+  async coordenaPredio(docenteId: string, _predioId?: string): Promise<boolean> {
+    return this.ehCoordenadorAtivo(docenteId);
   }
 
   async listarPrediosCoordenados(docenteId: string): Promise<string[]> {
