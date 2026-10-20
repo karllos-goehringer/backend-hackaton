@@ -3,7 +3,6 @@ import type { DbClient } from "../../shared/database/transacao.js";
 
 export interface ReservaComLocalizacao extends Reserva {
   predioId: string;
-  setorId: string | null;
   solicitanteTipo?: TipoCredencial;
   solicitanteEhCoordenador?: boolean;
   responsavelEhCoordenador?: boolean;
@@ -49,10 +48,8 @@ const RESERVA_COM_DETALHES = {
             id: true,
             nome: true,
             campusId: true,
-            setorId: true,
             endereco: true,
             campus: { select: { id: true, nome: true, sigla: true } },
-            setor: { select: { id: true, nome: true, sigla: true } },
           },
         },
         recursos: { select: { id: true, descricao: true } },
@@ -67,7 +64,6 @@ const RESERVA_COM_DETALHES = {
         codigoLogin: true,
         tipoCredencial: true,
         nivelAcesso: true,
-        curso: { select: { id: true, nome: true } },
         departamento: { select: { id: true, nome: true } },
       },
     },
@@ -80,7 +76,6 @@ const RESERVA_COM_DETALHES = {
         codigoLogin: true,
         tipoCredencial: true,
         nivelAcesso: true,
-        curso: { select: { id: true, nome: true } },
         departamento: { select: { id: true, nome: true } },
       },
     },
@@ -176,7 +171,7 @@ export class ReservasRepository {
     const reserva = await this.db.reserva.findUnique({
       where: { id },
       include: {
-        sala: { select: { predioId: true, predio: { select: { setorId: true } } } },
+        sala: { select: { predioId: true } },
         solicitante: {
           select: {
             id: true,
@@ -215,7 +210,6 @@ export class ReservasRepository {
     return {
       ...dados,
       predioId: sala.predioId,
-      setorId: sala.predio.setorId,
       ...(solicitante?.tipoCredencial ? { solicitanteTipo: solicitante.tipoCredencial } : {}),
       solicitanteEhCoordenador:
         solicitante?.nivelAcesso === 4 || (solicitante?.lotacoesCoordenacao?.length ?? 0) > 0,
@@ -315,7 +309,7 @@ export class ReservasRepository {
     const reserva = await this.db.reserva.findUnique({
       where: { id },
       include: {
-        sala: { select: { predioId: true, predio: { select: { setorId: true } } } },
+        sala: { select: { predioId: true } },
         solicitante: {
           select: {
             id: true,
@@ -354,7 +348,6 @@ export class ReservasRepository {
     return {
       ...dados,
       predioId: sala.predioId,
-      setorId: sala.predio.setorId,
       solicitanteTipo: solicitante.tipoCredencial,
       solicitanteEhCoordenador:
         solicitante.nivelAcesso === 4 || (solicitante.lotacoesCoordenacao?.length ?? 0) > 0,

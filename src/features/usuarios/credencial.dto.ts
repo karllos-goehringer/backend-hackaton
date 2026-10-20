@@ -6,13 +6,13 @@ export enum TipoEntrada {
 }
 
 export interface CriarCredencialDTO {
-  tipoEntrada: TipoEntrada;
-  entrada: string | number;
+  tipoEntrada?: TipoEntrada;
+  entrada?: string | number;
   senha: string | number;
 }
 
 export interface AutenticarCredencialDTO {
-  tipoEntrada: TipoEntrada;
+  tipoEntrada?: TipoEntrada;
   entrada: string | number;
   senha: string | number;
 }

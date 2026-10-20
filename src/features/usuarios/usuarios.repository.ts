@@ -40,24 +40,16 @@ export interface PerfilUsuario {
   nivelAcesso: number;
   ativo: boolean;
   criadoEm: Date;
-  curso: { id: string; nome: string } | null;
   departamento: { id: string; nome: string } | null;
   lotacoesCoordenacao: Array<{
     id: string;
     predioId: string;
-    setorId: string | null;
     numeroPortaria: string;
     ativo: boolean;
     predio?: {
       id: string;
       nome: string;
       campusId: string | null;
-      setorId: string | null;
-    } | null;
-    setor?: {
-      id: string;
-      nome: string;
-      sigla: string | null;
     } | null;
   }>;
 }
@@ -165,13 +157,11 @@ export class UsuariosRepository {
         nivelAcesso: true,
         ativo: true,
         criadoEm: true,
-        curso: { select: { id: true, nome: true } },
         departamento: { select: { id: true, nome: true } },
         lotacoesCoordenacao: {
           select: {
             id: true,
             predioId: true,
-            setorId: true,
             numeroPortaria: true,
             ativo: true,
             predio: {
@@ -179,14 +169,6 @@ export class UsuariosRepository {
                 id: true,
                 nome: true,
                 campusId: true,
-                setorId: true,
-              },
-            },
-            setor: {
-              select: {
-                id: true,
-                nome: true,
-                sigla: true,
               },
             },
           },

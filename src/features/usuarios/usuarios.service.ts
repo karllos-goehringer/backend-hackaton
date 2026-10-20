@@ -78,7 +78,6 @@ export class UsuariosService {
 
     await this.validarReferencia(
       dados.tipoCredencial,
-      dados.cursoId,
       dados.departamentoId,
       dados.coordenacoes,
     );
@@ -105,9 +104,9 @@ export class UsuariosService {
           tipoCredencial: dados.tipoCredencial,
           nivelAcesso: dados.nivelAcesso,
           ativo: true,
-          ...(dados.tipoCredencial === TipoCredencial.MATRICULA_ALUNO
-            ? (dados.cursoId ? { cursoId: dados.cursoId } : {})
-            : (dados.departamentoId ? { departamentoId: dados.departamentoId } : {})),
+          ...(dados.tipoCredencial !== TipoCredencial.MATRICULA_ALUNO && dados.departamentoId
+            ? { departamentoId: dados.departamentoId }
+            : {}),
         });
 
         await usuarios.criarCredencial({
@@ -122,7 +121,6 @@ export class UsuariosService {
             await usuarios.criarCoordenacao({
               docenteId: criado.id,
               predioId: coord.predioId,
-              ...(coord.setorId ? { setorId: coord.setorId } : {}),
               numeroPortaria: coord.numeroPortaria,
               ativo: true,
             });
@@ -153,7 +151,6 @@ export class UsuariosService {
           ? {
               aluno: {
                 matricula: resultado.codigoLogin,
-                curso: perfil?.curso ?? null,
               },
             }
           : {
@@ -165,7 +162,6 @@ export class UsuariosService {
         coordenacoes: lotacoesAtivas.map((lotacao) => ({
           id: lotacao.id,
           predioId: lotacao.predioId,
-          setorId: lotacao.setorId,
           numeroPortaria: lotacao.numeroPortaria,
           ativo: lotacao.ativo,
           coordenador: {
@@ -175,7 +171,6 @@ export class UsuariosService {
             email: resultado.emailInstitucional ?? null,
           },
           predio: lotacao.predio ?? null,
-          setor: lotacao.setor ?? null,
         })),
       };
     } catch (error) {
@@ -200,7 +195,7 @@ export class UsuariosService {
 
   async autenticar(dto: AutenticarCredencialDTO): Promise<CredencialAutenticadaDTO> {
     if (!dto || typeof dto !== "object") throw new ValidationError("Credencial invalida.");
-    const tipoEntrada = paraTipoEntradaPrisma(dto.tipoEntrada);
+    const tipoEntrada = paraTipoEntradaPrisma(dto.tipoEntrada ?? TipoEntrada.LOCAL);
     const entrada = normalizarIdentificador(dto.entrada);
     const senha = normalizarSegredo(dto.senha);
     if (!entrada || !senha) throw new ValidationError("Informe entrada e senha.");
@@ -258,7 +253,7 @@ export class UsuariosService {
       criadoEm: perfil.criadoEm,
       aluno:
         perfil.tipoCredencial === TipoCredencial.MATRICULA_ALUNO
-          ? { matricula: perfil.codigoLogin, curso: perfil.curso }
+          ? { matricula: perfil.codigoLogin }
           : null,
       servidor:
         perfil.tipoCredencial !== TipoCredencial.MATRICULA_ALUNO
@@ -267,7 +262,6 @@ export class UsuariosService {
       coordenacoes: lotacoesAtivas.map((lotacao) => ({
         id: lotacao.id,
         predioId: lotacao.predioId,
-        setorId: lotacao.setorId,
         numeroPortaria: lotacao.numeroPortaria,
         ativo: lotacao.ativo,
         coordenador: {
@@ -277,21 +271,15 @@ export class UsuariosService {
           email: perfil.emailInstitucional ?? null,
         },
         predio: lotacao.predio ?? null,
-        setor: lotacao.setor ?? null,
       })),
     };
   }
 
   private async validarReferencia(
     tipo: TipoCredencial,
-    cursoId: string | undefined,
     departamentoId: string | undefined,
-    coordenacoes: Array<{ predioId: string; setorId?: string }> = [],
+    coordenacoes: Array<{ predioId: string }> = [],
   ): Promise<void> {
-    if (tipo === TipoCredencial.MATRICULA_ALUNO && cursoId) {
-      const existe = await this.prisma.curso.findUnique({ where: { id: cursoId }, select: { id: true } });
-      if (!existe) throw new ValidationError("O curso informado nao existe.");
-    }
     if (tipo !== TipoCredencial.MATRICULA_ALUNO && departamentoId) {
       const existe = await this.prisma.departamento.findUnique({ where: { id: departamentoId }, select: { id: true } });
       if (!existe) throw new ValidationError("O departamento informado nao existe.");
@@ -303,15 +291,6 @@ export class UsuariosService {
       });
       if (!predio) {
         throw new ValidationError(`O predio informado para coordenacao (${coord.predioId}) nao existe.`);
-      }
-      if (coord.setorId) {
-        const setor = await this.prisma.setor.findUnique({
-          where: { id: coord.setorId },
-          select: { id: true, predioId: true },
-        });
-        if (!setor || setor.predioId !== coord.predioId) {
-          throw new ValidationError(`O setor informado (${coord.setorId}) nao existe ou nao pertence ao predio ${coord.predioId}.`);
-        }
       }
     }
   }
@@ -338,17 +317,23 @@ interface DadosCadastroNormalizados {
   papel: PapelCadastroUsuario;
   tipoCredencial: TipoCredencial;
   nivelAcesso: NivelAcesso;
-  cursoId?: string;
   departamentoId?: string;
   coordenacoes: Array<{
     predioId: string;
-    setorId?: string;
     numeroPortaria: string;
   }>;
 }
 
 function validarCadastro(dto: CadastroUsuarioDTO, opcoes?: OpcoesCadastroUsuario): DadosCadastroNormalizados {
   if (!dto || typeof dto !== "object") throw new ValidationError("Dados de cadastro invalidos.");
+  const registroBruto = dto as unknown as Record<string, unknown>;
+  if (registroBruto.curso !== undefined || registroBruto.cursoId !== undefined || registroBruto.periodoAtual !== undefined) {
+    throw new ValidationError("O campo curso/cursoId foi removido do modelo e nao e aceito no cadastro.");
+  }
+  if (registroBruto.setor !== undefined || registroBruto.setorId !== undefined) {
+    throw new ValidationError("O campo setor/setorId foi removido do modelo; a coordenacao vincula-se diretamente ao predio.");
+  }
+
   const nome = typeof dto.nome === "string" ? dto.nome.trim() : "";
   if (!nome) {
     throw new ValidationError("Nome e obrigatorio.");
@@ -377,15 +362,31 @@ function validarCadastro(dto: CadastroUsuarioDTO, opcoes?: OpcoesCadastroUsuario
   }
 
   const credencial = dto.credencial;
-  if (!credencial || typeof credencial !== "object") {
-    throw new ValidationError("Credencial obrigatoria com tipoEntrada, entrada e senha.");
+  if (credencial !== undefined && (credencial === null || typeof credencial !== "object" || Array.isArray(credencial))) {
+    throw new ValidationError("Credencial invalida.");
   }
-  const credencialTipo = credencial.tipoEntrada ?? TipoEntrada.LOCAL;
+  if (dto.senha === undefined && (!credencial || credencial.senha === undefined)) {
+    throw new ValidationError("Senha e obrigatoria (informe senha ou credencial.senha).");
+  }
+  if (
+    dto.tipoEntrada !== undefined &&
+    credencial?.tipoEntrada !== undefined &&
+    dto.tipoEntrada !== credencial.tipoEntrada
+  ) {
+    throw new ValidationError("Conflito entre tipoEntrada e credencial.tipoEntrada informados no cadastro.");
+  }
+  const credencialTipo = dto.tipoEntrada ?? credencial?.tipoEntrada ?? TipoEntrada.LOCAL;
   if (!(Object.values(TipoEntrada).filter((valor) => typeof valor === "number") as number[]).includes(credencialTipo)) {
     throw new ValidationError("Tipo de entrada de credencial invalido.");
   }
 
-  const senha = normalizarSegredo(credencial.senha);
+  const senhaTopo = dto.senha !== undefined ? normalizarSegredo(dto.senha) : undefined;
+  const senhaCredencial = credencial?.senha !== undefined ? normalizarSegredo(credencial.senha) : undefined;
+  if (senhaTopo !== undefined && senhaCredencial !== undefined && senhaTopo !== senhaCredencial) {
+    throw new ValidationError("Conflito entre senha e credencial.senha informadas no cadastro.");
+  }
+
+  const senha = senhaTopo ?? senhaCredencial ?? "";
   if (!senha || Buffer.byteLength(senha, "utf8") < 8) {
     throw new ValidationError("A senha deve conter ao menos 8 bytes.");
   }
@@ -400,15 +401,14 @@ function validarCadastro(dto: CadastroUsuarioDTO, opcoes?: OpcoesCadastroUsuario
 
   const matriculaInformada = dto.matricula !== undefined && dto.matricula !== null ? normalizarIdentificador(dto.matricula) : undefined;
   const siapeInformado = dto.siape !== undefined && dto.siape !== null ? normalizarIdentificador(dto.siape) : undefined;
-  const entradaCredencial = credencial.entrada !== undefined && credencial.entrada !== null ? normalizarIdentificador(credencial.entrada) : "";
+  const entradaCredencial =
+    credencial?.entrada !== undefined && credencial?.entrada !== null
+      ? normalizarIdentificador(credencial.entrada)
+      : "";
 
   const coordenacoes = normalizarCoordenacoesCadastro(dto);
-  const cursoId = typeof dto.cursoId === "string" && dto.cursoId.trim() ? dto.cursoId.trim() : undefined;
   const departamentoId = typeof dto.departamentoId === "string" && dto.departamentoId.trim() ? dto.departamentoId.trim() : undefined;
 
-  if (cursoId && !/^[a-f\d]{24}$/i.test(cursoId)) {
-    throw new ValidationError("cursoId deve ser um ObjectId MongoDB valido de 24 caracteres hexadecimais.");
-  }
   if (departamentoId && !/^[a-f\d]{24}$/i.test(departamentoId)) {
     throw new ValidationError("departamentoId deve ser um ObjectId MongoDB valido de 24 caracteres hexadecimais.");
   }
@@ -450,7 +450,6 @@ function validarCadastro(dto: CadastroUsuarioDTO, opcoes?: OpcoesCadastroUsuario
       papel: "ALUNO",
       tipoCredencial: TipoCredencial.MATRICULA_ALUNO,
       nivelAcesso: NivelAcesso.ALUNO,
-      cursoId,
       coordenacoes: [],
     };
   }
@@ -458,9 +457,6 @@ function validarCadastro(dto: CadastroUsuarioDTO, opcoes?: OpcoesCadastroUsuario
   // Papeis de servidor: PROFESSOR, TECNICO ou COORDENADOR
   if (matriculaInformada !== undefined) {
     throw new ValidationError("Servidor (PROFESSOR, TECNICO ou COORDENADOR) deve ser cadastrado com SIAPE e nao pode utilizar matricula de aluno.");
-  }
-  if (cursoId) {
-    throw new ValidationError("Servidor nao pode informar cursoId de aluno.");
   }
   if (papel !== "COORDENADOR" && coordenacoes.length > 0) {
     throw new ValidationError("Apenas usuarios com papel COORDENADOR podem receber lotacoes de coordenacao no cadastro.");
@@ -595,7 +591,6 @@ function resolverPapelCadastro(dto: CadastroUsuarioDTO, opcoes?: OpcoesCadastroU
 
 function normalizarCoordenacoesCadastro(dto: CadastroUsuarioDTO): Array<{
   predioId: string;
-  setorId?: string;
   numeroPortaria: string;
 }> {
   const itensBrutos: LotacaoCoordenacaoCadastroInput[] = [];
@@ -605,7 +600,6 @@ function normalizarCoordenacoesCadastro(dto: CadastroUsuarioDTO): Array<{
   if (typeof dto.predioId === "string" && dto.predioId.trim()) {
     itensBrutos.push({
       predioId: dto.predioId.trim(),
-      setorId: dto.setorId ?? null,
       numeroPortaria: dto.numeroPortaria,
     });
   }
@@ -614,7 +608,6 @@ function normalizarCoordenacoesCadastro(dto: CadastroUsuarioDTO): Array<{
       if (typeof id === "string" && id.trim()) {
         itensBrutos.push({
           predioId: id.trim(),
-          setorId: dto.setorId ?? null,
           numeroPortaria: dto.numeroPortaria,
         });
       }
@@ -624,13 +617,16 @@ function normalizarCoordenacoesCadastro(dto: CadastroUsuarioDTO): Array<{
   const vistos = new Set<string>();
   const resultado: Array<{
     predioId: string;
-    setorId?: string;
     numeroPortaria: string;
   }> = [];
 
   for (const item of itensBrutos) {
     if (!item || typeof item !== "object") {
       throw new ValidationError("Item de coordenacao invalido.");
+    }
+    const itemBruto = item as unknown as Record<string, unknown>;
+    if (itemBruto.setor !== undefined || itemBruto.setorId !== undefined) {
+      throw new ValidationError("O campo setor/setorId foi removido do modelo; a coordenacao vincula-se diretamente ao predio.");
     }
     const predioId = typeof item.predioId === "string" ? item.predioId.trim() : "";
     if (!/^[a-f\d]{24}$/i.test(predioId)) {
@@ -639,11 +635,6 @@ function normalizarCoordenacoesCadastro(dto: CadastroUsuarioDTO): Array<{
     if (vistos.has(predioId)) continue;
     vistos.add(predioId);
 
-    const setorId = typeof item.setorId === "string" && item.setorId.trim() ? item.setorId.trim() : undefined;
-    if (setorId && !/^[a-f\d]{24}$/i.test(setorId)) {
-      throw new ValidationError("setorId da coordenacao deve ser um ObjectId MongoDB valido de 24 caracteres hexadecimais.");
-    }
-
     const numeroPortaria =
       (typeof item.numeroPortaria === "string" && item.numeroPortaria.trim()) ||
       (typeof dto.numeroPortaria === "string" && dto.numeroPortaria.trim()) ||
@@ -651,7 +642,6 @@ function normalizarCoordenacoesCadastro(dto: CadastroUsuarioDTO): Array<{
 
     resultado.push({
       predioId,
-      ...(setorId ? { setorId } : {}),
       numeroPortaria,
     });
   }

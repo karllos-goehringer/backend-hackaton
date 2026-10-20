@@ -20,7 +20,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
         "3. Todas as rotas protegidas enviarão o cabeçalho `Authorization: Bearer <token>`.",
         "",
         "### Perfis de Acesso (`NivelAcesso`)",
-        "- `1` — **ALUNO** (`MATRICULA_ALUNO`): cadastra-se com `matricula` (8 a 15 caracteres; `cursoId`, `email` e `telefone` opcionais). Solicita reservas com indicação obrigatória de servidor/coordenador responsável (`responsavelId`), antecedência mínima de 12h e limite de 2 reservas a cada 12h e 2 por dia (`status = PENDENTE_APROVACAO` até aceite do responsável).",
+        "- `1` — **ALUNO** (`MATRICULA_ALUNO`): cadastra-se com `matricula` (8 a 15 caracteres; `email` e `telefone` opcionais). Solicita reservas com indicação obrigatória de servidor/coordenador responsável (`responsavelId`), antecedência mínima de 12h e limite de 2 reservas a cada 12h e 2 por dia (`status = PENDENTE_APROVACAO` até aceite do responsável).",
         "- `2` — **TECNICO** (`SIAPE_TECNICO`): cadastra-se com `siape` (6 a 7 dígitos numéricos). Cria reservas para si mesmo com agendamento imediato (`status = AGENDADO`), respeitando antecedência mínima de 12h e limite de 2 reservas a cada 12h e 2 por dia, ou atua como responsável por reserva de aluno.",
         "- `3` — **PROFESSOR** (`SIAPE_DOCENTE`): cadastra-se com `siape` (6 a 7 dígitos numéricos). Cria reservas com agendamento imediato (`status = AGENDADO`), aceita/aprova reservas de alunos sob sua responsabilidade (`status = APROVADA`) e pode solicitar à coordenação o cancelamento de reserva de aluno.",
         "- `4` — **COORDENADOR** (`SIAPE_DOCENTE` com papel/lotação de coordenação): cadastra-se com `siape` (6 a 7 dígitos numéricos) e vínculo a prédio(s) coordenado(s). Gerencia prédios e salas dentro de seu escopo territorial, cria séries recorrentes (`SEMANAL`, `MENSAL`, `SEMESTRAL`, `ANUAL`) com `status = APROVADA`, e aprova/rejeita/cancela reservas do seu prédio desde que não estejam sob a responsabilidade de outro coordenador.",
@@ -135,7 +135,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
         },
         AutenticarCredencialInput: {
           type: "object",
-          required: ["tipoEntrada", "entrada", "senha"],
+          required: ["entrada", "senha"],
           properties: {
             tipoEntrada: {
               type: "integer",
@@ -212,30 +212,15 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               description: "ObjectId do prédio coordenado.",
               example: "64b7f0c2a1b2c3d4e5f60011",
             },
-            setorId: {
-              type: "string",
-              pattern: "^[a-fA-F0-9]{24}$",
-              nullable: true,
-              description: "ObjectId opcional do setor dentro do prédio.",
-            },
             numeroPortaria: {
               type: "string",
               example: "PORTARIA-IFES-2026-01",
-            },
-            dataInicio: {
-              type: "string",
-              format: "date-time",
-            },
-            dataFim: {
-              type: "string",
-              format: "date-time",
-              nullable: true,
             },
           },
         },
         CadastroUsuarioInput: {
           type: "object",
-          required: ["nome", "credencial"],
+          required: ["nome"],
           properties: {
             uuid: {
               type: "string",
@@ -287,15 +272,15 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               description: "Exclusivo para `PROFESSOR`, `TECNICO` e `COORDENADOR`: SIAPE numérico de 6 a 7 dígitos (rejeita matrícula de aluno).",
               example: "1543210",
             },
+            senha: {
+              type: "string",
+              minLength: 8,
+              maxLength: 72,
+              description: "Senha entre 8 e 72 bytes UTF-8 (forma simplificada recomendada; dispensa enviar o objeto credencial).",
+              example: "SenhaSegura@123",
+            },
             credencial: {
               $ref: "#/components/schemas/CriarCredencialInput",
-            },
-            cursoId: {
-              type: "string",
-              pattern: "^[a-fA-F0-9]{24}$",
-              nullable: true,
-              description: "Opcional para `ALUNO`. Quando informado, deve existir na coleção `cursos`.",
-              example: "64b7f0c2a1b2c3d4e5f60001",
             },
             departamentoId: {
               type: "string",
@@ -332,9 +317,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           required: ["id", "predioId", "numeroPortaria", "ativo", "coordenador", "predio"],
           properties: {
             id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60555" },
-            predioId: { type: "string", example: "64b7f0c2a1b2c3d4e5f60011" },
-            setorId: { type: "string", nullable: true, example: null },
-            numeroPortaria: { type: "string", example: "PORTARIA-IFES-2026-01" },
+            predioId: { type: "string", example: "64b7f0c2a1b2c3d4e5f60011" },            numeroPortaria: { type: "string", example: "PORTARIA-IFES-2026-01" },
             ativo: { type: "boolean", example: true },
             coordenador: {
               type: "object",
@@ -352,18 +335,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               properties: {
                 id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60011" },
                 nome: { type: "string", example: "Prédio TI" },
-                campusId: { type: "string", nullable: true },
-                setorId: { type: "string", nullable: true },
-              },
-            },
-            setor: {
-              type: "object",
-              nullable: true,
-              properties: {
-                id: { type: "string" },
-                nome: { type: "string" },
-                sigla: { type: "string", nullable: true },
-              },
+                campusId: { type: "string", nullable: true },              },
             },
           },
         },
@@ -413,14 +385,6 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               nullable: true,
               properties: {
                 matricula: { type: "string", example: "20261001" },
-                curso: {
-                  type: "object",
-                  nullable: true,
-                  properties: {
-                    id: { type: "string" },
-                    nome: { type: "string" },
-                  },
-                },
               },
             },
             servidor: {
@@ -504,7 +468,6 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               nullable: true,
               properties: {
                 matricula: { type: "string" },
-                curso: { type: "object", nullable: true, additionalProperties: true },
               },
             },
             servidor: {
@@ -533,13 +496,11 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
         },
         PredioResumo: {
           type: "object",
-          required: ["id", "nome", "campusId", "setorId", "endereco"],
+          required: ["id", "nome", "campusId", "endereco"],
           properties: {
             id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60011" },
             nome: { type: "string", example: "Prédio Administrativo" },
-            campusId: { type: "string", nullable: true, example: null },
-            setorId: { type: "string", nullable: true, example: null },
-            endereco: {
+            campusId: { type: "string", nullable: true, example: null },            endereco: {
               allOf: [{ $ref: "#/components/schemas/Endereco" }],
               nullable: true,
             },
@@ -602,9 +563,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           required: ["nome"],
           properties: {
             nome: { type: "string", example: "Prédio de Pós-Graduação" },
-            campusId: { type: "string", nullable: true, example: null },
-            setorId: { type: "string", nullable: true, example: null },
-            endereco: {
+            campusId: { type: "string", nullable: true, example: null },            endereco: {
               allOf: [{ $ref: "#/components/schemas/Endereco" }],
               nullable: true,
             },
@@ -615,9 +574,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           description: "Informe ao menos um campo para atualizar.",
           properties: {
             nome: { type: "string", example: "Prédio de Pesquisa e Pós-Graduação" },
-            campusId: { type: "string", nullable: true },
-            setorId: { type: "string", nullable: true },
-            endereco: {
+            campusId: { type: "string", nullable: true },            endereco: {
               allOf: [{ $ref: "#/components/schemas/Endereco" }],
               nullable: true,
             },
@@ -651,13 +608,11 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               properties: {
                 predio: {
                   type: "object",
-                  required: ["id", "nome", "campusId", "setorId"],
+                  required: ["id", "nome", "campusId"],
                   properties: {
                     id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60015" },
                     nome: { type: "string", example: "Prédio TI" },
-                    campusId: { type: "string", nullable: true, example: null },
-                    setorId: { type: "string", nullable: true, example: null },
-                  },
+                    campusId: { type: "string", nullable: true, example: null },                  },
                 },
               },
             },
@@ -743,14 +698,6 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               enum: ["MATRICULA_ALUNO", "SIAPE_DOCENTE", "SIAPE_TECNICO"],
             },
             nivelAcesso: { type: "integer", enum: [1, 2, 3, 4], example: 1 },
-            curso: {
-              type: "object",
-              nullable: true,
-              properties: {
-                id: { type: "string" },
-                nome: { type: "string" },
-              },
-            },
             departamento: {
               type: "object",
               nullable: true,
@@ -836,9 +783,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
                   properties: {
                     id: { type: "string" },
                     nome: { type: "string" },
-                    campusId: { type: "string", nullable: true },
-                    setorId: { type: "string", nullable: true },
-                    endereco: { $ref: "#/components/schemas/Endereco" },
+                    campusId: { type: "string", nullable: true },                    endereco: { $ref: "#/components/schemas/Endereco" },
                   },
                 },
                 recursos: {
@@ -1178,7 +1123,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           summary: "Cadastrar usuário (ALUNO, PROFESSOR, TECNICO ou COORDENADOR)",
           description: [
             "Cadastra um novo usuário e sua credencial em transação:",
-            "- **ALUNO:** usa `matricula` (8 a 15 caracteres; não aceita SIAPE). `cursoId`, `email` e `telefone` são opcionais.",
+            "- **ALUNO:** usa `matricula` (8 a 15 caracteres; não aceita SIAPE). `email` e `telefone` são opcionais.",
             "- **PROFESSOR / TECNICO / COORDENADOR:** usam `siape` (6 a 7 dígitos numéricos; não aceita matrícula de aluno). `departamentoId`, `email` e `telefone` são opcionais.",
             "- **COORDENADOR:** aceita opcionalmente `predioId`, `predioIds` ou `coordenacoes` para vincular o(s) prédio(s) sob sua coordenação.",
           ].join("\n"),
@@ -1242,7 +1187,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           tags: ["Usuários"],
           summary: "Cadastrar aluno (ALUNO)",
           description:
-            "Rota dedicada para cadastro de `ALUNO` (`MATRICULA_ALUNO`, `nivelAcesso = 1`). Exige `matricula` (ou `credencial.entrada` com formato de matrícula) e rejeita `siape`. `cursoId`, `email` e `telefone` são opcionais.",
+            "Rota dedicada para cadastro de `ALUNO` (`MATRICULA_ALUNO`, `nivelAcesso = 1`). Exige `matricula` (ou `credencial.entrada` com formato de matrícula) e rejeita `siape`. `email` e `telefone` são opcionais.",
           security: [],
           requestBody: {
             required: true,

@@ -16,13 +16,7 @@ export interface LotacaoCoordenacaoDetalhada extends LotacaoCoordenacaoDados {
     id: string;
     nome: string;
     campusId: string | null;
-    setorId: string | null;
   };
-  setor: {
-    id: string;
-    nome: string;
-    sigla: string | null;
-  } | null;
 }
 
 export class LotacoesRepository {
@@ -32,7 +26,7 @@ export class LotacoesRepository {
   listarPorDocente(docenteId: string): Promise<LotacaoCoordenacaoDados[]> {
     return this.db.lotacaoCoordenacao.findMany({
       where: { docenteId },
-      select: { predioId: true, setorId: true, ativo: true },
+      select: { predioId: true, ativo: true },
     });
   }
 
@@ -44,7 +38,6 @@ export class LotacoesRepository {
         id: true,
         docenteId: true,
         predioId: true,
-        setorId: true,
         numeroPortaria: true,
         ativo: true,
         docente: {
@@ -61,14 +54,6 @@ export class LotacoesRepository {
             id: true,
             nome: true,
             campusId: true,
-            setorId: true,
-          },
-        },
-        setor: {
-          select: {
-            id: true,
-            nome: true,
-            sigla: true,
           },
         },
       },

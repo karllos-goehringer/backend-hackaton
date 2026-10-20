@@ -50,8 +50,9 @@ export function autenticarToken(usuarios: UsuariosRepository): RequestHandler {
         ? NivelAcesso.TECNICO
         : NivelAcesso.PROFESSOR;
     if (
-      usuario.tipoCredencial === TipoCredencial.SIAPE_DOCENTE &&
-      await usuarios.possuiLotacaoAtiva(usuario.id)
+      usuario.nivelAcesso === NivelAcesso.COORDENADOR ||
+      (usuario.tipoCredencial === TipoCredencial.SIAPE_DOCENTE &&
+        await usuarios.possuiLotacaoAtiva(usuario.id))
     ) {
       nivelAcesso = NivelAcesso.COORDENADOR;
     }
