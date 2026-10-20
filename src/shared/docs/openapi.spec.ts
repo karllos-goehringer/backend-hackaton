@@ -1552,7 +1552,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           tags: ["Usuários"],
           summary: "Cadastrar servidor (PROFESSOR, TECNICO ou COORDENADOR)",
           description:
-            "Rota para cadastro de servidores (`PROFESSOR`, `TECNICO` ou `COORDENADOR`) utilizando `siape` (6 a 7 dígitos) e `senha`. Rejeita matrícula de aluno.",
+            "Rota para cadastro de servidores (`PROFESSOR`, `TECNICO` ou `COORDENADOR`) utilizando `siape` (6 a 7 dígitos), `senha` e `departamentoId` obrigatório. Rejeita matrícula de aluno.",
           security: [],
           requestBody: {
             required: true,
@@ -1628,7 +1628,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           tags: ["Usuários"],
           summary: "Cadastrar professor (PROFESSOR)",
           description:
-            "Rota dedicada para cadastro de `PROFESSOR` (`SIAPE_DOCENTE`, `nivelAcesso = 3`). Exige `nome`, `siape` (6 a 7 dígitos) e `senha`. Rejeita matrícula de aluno.",
+            "Rota dedicada para cadastro de `PROFESSOR` (`SIAPE_DOCENTE`, `nivelAcesso = 3`). Exige `nome`, `siape` (6 a 7 dígitos), `senha` e `departamentoId` institucional obrigatório. Rejeita matrícula de aluno.",
           security: [],
           requestBody: {
             required: true,
@@ -1677,7 +1677,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           tags: ["Usuários"],
           summary: "Cadastrar técnico administrativo (TECNICO)",
           description:
-            "Rota dedicada para cadastro de `TECNICO` (`SIAPE_TECNICO`, `nivelAcesso = 2`). Exige `nome`, `siape` (6 a 7 dígitos) e `senha`. Rejeita matrícula de aluno.",
+            "Rota dedicada para cadastro de `TECNICO` (`SIAPE_TECNICO`, `nivelAcesso = 2`). Exige `nome`, `siape` (6 a 7 dígitos), `senha` e `departamentoId` institucional obrigatório. Rejeita matrícula de aluno.",
           security: [],
           requestBody: {
             required: true,
@@ -1726,7 +1726,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           tags: ["Usuários"],
           summary: "Cadastrar coordenador (COORDENADOR)",
           description:
-            "Rota dedicada para cadastro de `COORDENADOR` (`SIAPE_DOCENTE`, `nivelAcesso = 4`). Exige `nome`, `siape`, `senha` e `predioId` para vincular o prédio sob sua coordenação.",
+            "Rota dedicada para cadastro de `COORDENADOR` (`SIAPE_DOCENTE`, `nivelAcesso = 4`). Exige `nome`, `siape`, `senha`, `predioId` e `departamentoId` institucional obrigatório.",
           security: [],
           requestBody: {
             required: true,

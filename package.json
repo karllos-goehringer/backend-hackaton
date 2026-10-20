@@ -11,7 +11,10 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate --schema schema.prisma",
-    "prisma:push": "tsx src/prisma-cli.ts db push --schema schema.prisma"
+    "prisma:push": "tsx src/prisma-cli.ts db push --schema schema.prisma",
+    "seed:predios": "tsx src/features/predios/seed/executar-seed.ts",
+    "seed:departamentos": "tsx src/features/usuarios/seed/executar-seed-departamentos.ts",
+    "seed": "tsx src/features/usuarios/seed/executar-seed-departamentos.ts && tsx src/features/predios/seed/executar-seed.ts"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
