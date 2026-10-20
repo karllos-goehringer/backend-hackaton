@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .env
-docs/
+.env.*
+!.env.example
+/docs/
 
 .agent-context-reservaif.md

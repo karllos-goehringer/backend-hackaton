@@ -5,6 +5,7 @@ import { criarModuloPredios } from "./features/predios/predios.module.js";
 import { criarModuloReservas } from "./features/reservas/reservas.module.js";
 import { criarModuloSalas } from "./features/salas/salas.module.js";
 import { criarModuloUsuarios } from "./features/usuarios/usuarios.module.js";
+import { criarModuloSwagger } from "./shared/docs/swagger.routes.js";
 import { errorHandler } from "./shared/http/error-handler.js";
 
 const app = express();
@@ -15,6 +16,7 @@ app.get("/health", (_request, response) => {
 	response.status(200).json({ status: "ok" });
 });
 
+app.use(criarModuloSwagger());
 app.use("/usuarios", criarModuloUsuarios());
 app.use("/autenticacao", criarModuloAutenticacao());
 app.use("/predios", criarModuloPredios());

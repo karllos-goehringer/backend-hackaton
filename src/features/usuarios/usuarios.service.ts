@@ -9,6 +9,7 @@ import type { CadastroUsuarioDTO } from "./cadastro-usuario.dto.js";
 import { TipoEntrada, type AutenticarCredencialDTO, type CredencialAutenticadaDTO } from "./credencial.dto.js";
 import { ID_CATALOGO_DEPARTAMENTOS } from "./departamentos-elegiveis.repository.js";
 import type { DepartamentoElegivel } from "./departamentos-elegiveis.js";
+import { obterJwtSecret as obterJwtSecretPorAmbiente, obterOpcoesAssinaturaJwt } from "../../shared/config/jwt.config.js";
 import { UsuariosRepository } from "./usuarios.repository.js";
 
 const CUSTO_HASH = 12;
@@ -27,7 +28,7 @@ export class UsuariosService {
 
   constructor({
     prisma,
-    jwtSecret = process.env.JWT_SECRET,
+    jwtSecret,
     provisionKey = process.env.USER_PROVISION_KEY,
   }: DependenciasUsuariosService) {
     this.prisma = prisma;
@@ -128,7 +129,7 @@ export class UsuariosService {
         departamentoId: credencial.usuario.departamentoId,
       },
       obterJwtSecret(this.jwtSecret),
-      { subject: credencial.usuario.id, expiresIn: TOKEN_TTL, algorithm: "HS256" },
+      obterOpcoesAssinaturaJwt(credencial.usuario.id),
     );
 
     return { uuid: credencial.usuario.id, nivelAcesso, token };
@@ -289,9 +290,12 @@ export function paraTipoEntradaPrisma(tipo: TipoEntrada): TipoEntradaCredencial 
   }
 }
 
-export function obterJwtSecret(configurado = process.env.JWT_SECRET): string {
+export function obterJwtSecret(configurado?: string): string {
+  return obterJwtSecretPorAmbiente(configurado);
+}
+function _validarJwtLegado(configurado = process.env.JWT_SECRET): string {
   if (!configurado || configurado.length < 32) {
     throw new Error("JWT_SECRET deve estar definido no .env e ter pelo menos 32 caracteres.");
   }
-  return configurado;
+  return obterJwtSecretPorAmbiente(configurado);
 }
