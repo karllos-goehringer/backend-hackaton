@@ -517,6 +517,96 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             },
           },
         },
+        ServidorResumo: {
+          type: "object",
+          required: ["id", "nome", "siape", "role", "nivelAcesso", "tipoCredencial", "ativo"],
+          properties: {
+            id: {
+              type: "string",
+              pattern: "^[a-fA-F0-9]{24}$",
+              description: "ObjectId do servidor.",
+              example: "64b7f0c2a1b2c3d4e5f60002",
+            },
+            uuid: {
+              type: "string",
+              pattern: "^[a-fA-F0-9]{24}$",
+              description: "UUID/ID do servidor.",
+              example: "64b7f0c2a1b2c3d4e5f60002",
+            },
+            nome: {
+              type: "string",
+              example: "Prof. Carlos Mendes",
+            },
+            email: {
+              type: "string",
+              format: "email",
+              nullable: true,
+              example: "carlos.mendes@ifes.edu.br",
+            },
+            telefone: {
+              type: "string",
+              nullable: true,
+              example: "(27) 98888-1111",
+            },
+            siape: {
+              type: "string",
+              description: "Número SIAPE institucional do servidor.",
+              example: "1543210",
+            },
+            identificador: {
+              type: "string",
+              example: "1543210",
+            },
+            role: {
+              type: "string",
+              enum: ["PROFESSOR", "TECNICO", "COORDENADOR"],
+              example: "PROFESSOR",
+            },
+            nivelAcesso: {
+              type: "integer",
+              enum: [2, 3, 4],
+              description: "2 = TECNICO, 3 = PROFESSOR, 4 = COORDENADOR.",
+              example: 3,
+            },
+            tipoCredencial: {
+              type: "string",
+              enum: ["SIAPE_DOCENTE", "SIAPE_TECNICO"],
+              example: "SIAPE_DOCENTE",
+            },
+            ativo: {
+              type: "boolean",
+              example: true,
+            },
+            departamento: {
+              type: "object",
+              nullable: true,
+              description: "Departamento institucional de lotação.",
+              properties: {
+                id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60103" },
+                nome: { type: "string", example: "Coordenadoria de Tecnologia da Informação" },
+              },
+            },
+            coordenacoes: {
+              type: "array",
+              description: "Lotações de coordenação vigentes (quando aplicável).",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60555" },
+                  predioId: { type: "string", example: "64b7f0c2a1b2c3d4e5f60015" },
+                  numeroPortaria: { type: "string", example: "PORTARIA-IFES-2026-01" },
+                  ativo: { type: "boolean", example: true },
+                  predio: { $ref: "#/components/schemas/PredioResumo" },
+                },
+              },
+            },
+            criadoEm: {
+              type: "string",
+              format: "date-time",
+              example: "2026-10-20T10:00:00.000Z",
+            },
+          },
+        },
         LotacaoCoordenacaoResposta: {
           type: "object",
           required: ["id", "predioId", "numeroPortaria", "ativo", "coordenador", "predio"],
@@ -1548,6 +1638,58 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
         },
       },
       "/usuarios/servidores": {
+        get: {
+          tags: ["Usuários"],
+          summary: "Listar servidores (professores, técnicos e coordenadores)",
+          description:
+            "Retorna todos os servidores públicos ativos cadastrados no sistema (PROFESSOR, TECNICO e COORDENADOR), com seus dados funcionais (SIAPE, departamento, cargo/role e coordenações). Permite filtrar por papel (`?role=PROFESSOR`), `departamentoId` ou `predioId`. Ideal para seleção de responsável em reservas de alunos.",
+          security: [],
+          parameters: [
+            {
+              name: "role",
+              in: "query",
+              required: false,
+              description: "Filtrar por papel do servidor (`PROFESSOR`, `TECNICO` ou `COORDENADOR`).",
+              schema: {
+                type: "string",
+                enum: ["PROFESSOR", "TECNICO", "COORDENADOR"],
+              },
+            },
+            {
+              name: "departamentoId",
+              in: "query",
+              required: false,
+              description: "Filtrar por ObjectId do departamento.",
+              schema: {
+                type: "string",
+                pattern: "^[a-fA-F0-9]{24}$",
+              },
+            },
+            {
+              name: "predioId",
+              in: "query",
+              required: false,
+              description: "Filtrar coordenadores por ObjectId do prédio coordenado.",
+              schema: {
+                type: "string",
+                pattern: "^[a-fA-F0-9]{24}$",
+              },
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Lista de servidores cadastrados.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/ServidorResumo" },
+                  },
+                },
+              },
+            },
+          },
+        },
         post: {
           tags: ["Usuários"],
           summary: "Cadastrar servidor (PROFESSOR, TECNICO ou COORDENADOR)",
@@ -1624,6 +1766,34 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
         },
       },
       "/usuarios/professores": {
+        get: {
+          tags: ["Usuários"],
+          summary: "Listar professores",
+          description: "Retorna a lista de servidores com perfil de PROFESSOR e seus respectivos departamentos.",
+          security: [],
+          parameters: [
+            {
+              name: "departamentoId",
+              in: "query",
+              required: false,
+              description: "Filtrar por ObjectId do departamento.",
+              schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Lista de professores cadastrados.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/ServidorResumo" },
+                  },
+                },
+              },
+            },
+          },
+        },
         post: {
           tags: ["Usuários"],
           summary: "Cadastrar professor (PROFESSOR)",
@@ -1673,6 +1843,34 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
         },
       },
       "/usuarios/tecnicos": {
+        get: {
+          tags: ["Usuários"],
+          summary: "Listar técnicos administrativos",
+          description: "Retorna a lista de servidores com perfil de TECNICO e seus respectivos departamentos.",
+          security: [],
+          parameters: [
+            {
+              name: "departamentoId",
+              in: "query",
+              required: false,
+              description: "Filtrar por ObjectId do departamento.",
+              schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Lista de técnicos administrativos cadastrados.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/ServidorResumo" },
+                  },
+                },
+              },
+            },
+          },
+        },
         post: {
           tags: ["Usuários"],
           summary: "Cadastrar técnico administrativo (TECNICO)",
@@ -1722,6 +1920,34 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
         },
       },
       "/usuarios/coordenadores": {
+        get: {
+          tags: ["Usuários"],
+          summary: "Listar coordenadores de prédio",
+          description: "Retorna a lista de servidores com perfil de COORDENADOR e seus prédios coordenados vinculados.",
+          security: [],
+          parameters: [
+            {
+              name: "predioId",
+              in: "query",
+              required: false,
+              description: "Filtrar por ObjectId do prédio coordenado.",
+              schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Lista de coordenadores de prédio cadastrados.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/ServidorResumo" },
+                  },
+                },
+              },
+            },
+          },
+        },
         post: {
           tags: ["Usuários"],
           summary: "Cadastrar coordenador (COORDENADOR)",

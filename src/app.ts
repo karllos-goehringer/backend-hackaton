@@ -18,6 +18,10 @@ app.get("/health", (_request, response) => {
 
 app.use(criarModuloSwagger());
 app.use("/usuarios", criarModuloUsuarios());
+app.get("/servidores", (request, response) => {
+	const query = request.url.includes("?") ? request.url.slice(request.url.indexOf("?")) : "";
+	response.redirect(307, `/usuarios/servidores${query}`);
+});
 app.use("/autenticacao", criarModuloAutenticacao());
 app.use("/predios", criarModuloPredios());
 app.use("/salas", criarModuloSalas());

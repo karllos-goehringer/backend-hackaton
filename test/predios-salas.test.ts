@@ -888,6 +888,29 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
             lotacoesCoordenacao: lotacoesMem.filter((l) => l.docenteId === u.id),
           };
         },
+        findMany: async ({ where }: any) => {
+          return [...usuariosMem.values()]
+            .filter((u) => {
+              if (where?.tipoCredencial?.in && !where.tipoCredencial.in.includes(u.tipoCredencial)) {
+                return false;
+              }
+              if (where?.ativo !== undefined && u.ativo !== where.ativo) {
+                return false;
+              }
+              if (where?.departamentoId && u.departamentoId !== where.departamentoId) {
+                return false;
+              }
+              return true;
+            })
+            .map((u) => ({
+              ...u,
+              departamento: u.departamentoId === depTiId ? { id: depTiId, nome: "Coordenadoria de Tecnologia da Informação" } : null,
+              lotacoesCoordenacao: lotacoesMem.filter((l) => l.docenteId === u.id).map((l) => ({
+                ...l,
+                predio: { id: predioTiId, nome: "Prédio TI", campusId: null },
+              })),
+            }));
+        },
       },
       credencial: {
         create: async () => {},
@@ -1047,6 +1070,36 @@ describe("Regras de Negocio de Reservas e Cancelamentos (Preservacao e Integraca
     assert.equal(profSemHeader.role, "PROFESSOR");
     assert.equal(profSemHeader.tipoCredencial, TipoCredencial.SIAPE_DOCENTE);
     assert.equal(profSemHeader.identificador, "1987654");
+
+    // 6. Listar servidores (professores, tecnicos, coordenadores) e dados importantes
+    const todosServidores = await usuariosService.listarServidores();
+    assert.equal(todosServidores.length >= 4, true);
+    // Não deve conter alunos
+    assert.equal(todosServidores.some((s) => s.role === "ALUNO" as any), false);
+
+    const prof = todosServidores.find((s) => s.siape === "1543210");
+    assert.ok(prof);
+    assert.equal(prof?.role, "PROFESSOR");
+    assert.equal(prof?.nivelAcesso, NivelAcesso.PROFESSOR);
+    assert.equal(prof?.tipoCredencial, TipoCredencial.SIAPE_DOCENTE);
+    assert.equal(prof?.departamento?.nome, "Coordenadoria de Tecnologia da Informação");
+
+    const tec = todosServidores.find((s) => s.siape === "1654321");
+    assert.ok(tec);
+    assert.equal(tec?.role, "TECNICO");
+    assert.equal(tec?.nivelAcesso, NivelAcesso.TECNICO);
+
+    const coord = todosServidores.find((s) => s.siape === "1765432");
+    assert.ok(coord);
+    assert.equal(coord?.role, "COORDENADOR");
+    assert.equal(coord?.nivelAcesso, NivelAcesso.COORDENADOR);
+    assert.equal(coord?.coordenacoes.length, 1);
+    assert.equal(coord?.coordenacoes[0]?.predio?.nome, "Prédio TI");
+
+    // Filtro por role
+    const apenasProfs = await usuariosService.listarServidores({ role: "PROFESSOR" });
+    assert.ok(apenasProfs.length >= 2);
+    assert.ok(apenasProfs.every((p) => p.role === "PROFESSOR"));
   });
 
   test("12. Transicoes de estado de reserva (aceite do responsavel -> APROVADA, rejeicao -> REJEITADA) e fronteira entre coordenadores", async () => {
