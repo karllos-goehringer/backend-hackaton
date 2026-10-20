@@ -6,6 +6,7 @@ import {
   NotFoundError,
 } from "../../shared/errors/app-error.js";
 import type { AtorAutenticado } from "../autenticacao/autenticacao.middleware.js";
+import { estaAtiva, type LotacaoCoordenacaoDados } from "../coordenacao/domain/lotacao-coordenacao.js";
 import { NivelAcesso } from "../reservas/domain/nivel-acesso.js";
 import {
   SalasRepository,
@@ -86,6 +87,8 @@ export class PrediosService {
     const atual = await predios.buscarResumoPorId(id);
     if (!atual) throw new NotFoundError("Predio nao encontrado.");
 
+    await this.garantirEscopoPredioCoordenador(ator, id);
+
     if (dados.nome !== undefined && dados.nome !== atual.nome) {
       const duplicado = await predios.buscarPorNome(dados.nome);
       if (duplicado && duplicado.id !== id) {
@@ -102,6 +105,8 @@ export class PrediosService {
     const predios = new PrediosRepository(this.prisma);
     const atual = await predios.buscarResumoPorId(id);
     if (!atual) throw new NotFoundError("Predio nao encontrado.");
+
+    await this.garantirEscopoPredioCoordenador(ator, id);
 
     const totalSalas = await predios.contarSalasPorPredio(id);
     if (totalSalas > 0) {
@@ -123,5 +128,24 @@ export class PrediosService {
       throw new ForbiddenError("Apenas coordenadores podem cadastrar, alterar ou remover predios.");
     }
   }
-}
 
+  private async garantirEscopoPredioCoordenador(ator: AtorAutenticado, predioId: string): Promise<void> {
+    const delegate = (this.prisma as PrismaClient & {
+      lotacaoCoordenacao?: {
+        findMany?: (args: unknown) => Promise<LotacaoCoordenacaoDados[]>;
+      };
+    }).lotacaoCoordenacao;
+    if (!delegate || typeof delegate.findMany !== "function") return;
+
+    const lotacoes = await delegate.findMany({
+      where: { docenteId: ator.id },
+      select: { predioId: true, setorId: true, ativo: true },
+    });
+    const ativas = lotacoes.filter((l) => estaAtiva(l));
+    if (ativas.length > 0 && !ativas.some((l) => l.predioId === predioId)) {
+      throw new ForbiddenError(
+        "Apenas o coordenador vinculado a este predio pode alterar ou remover o predio.",
+      );
+    }
+  }
+}

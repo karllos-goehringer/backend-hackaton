@@ -18,6 +18,18 @@ export class ReservasController {
     response.status(200).json(await this.service.listar(filtros));
   };
 
+  listarMinhas = async (request: Request, response: Response): Promise<void> => {
+    const ator = obterAtor(request);
+    const { solicitanteId: _s, responsavelId: _r, ...filtros } = validarFiltrosListagem(request.query);
+    response.status(200).json(await this.service.listarMinhasSolicitadas(ator, filtros));
+  };
+
+  listarSobResponsabilidade = async (request: Request, response: Response): Promise<void> => {
+    const ator = obterAtor(request);
+    const { solicitanteId: _s, responsavelId: _r, ...filtros } = validarFiltrosListagem(request.query);
+    response.status(200).json(await this.service.listarSobMinhaResponsabilidade(ator, filtros));
+  };
+
   buscarPorId = async (request: Request, response: Response): Promise<void> => {
     const id = validarIdReserva(request.params.id);
     response.status(200).json(await this.service.buscarPorId(id));

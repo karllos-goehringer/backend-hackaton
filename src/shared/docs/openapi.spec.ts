@@ -10,9 +10,9 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
     openapi: "3.0.3",
     info: {
       title: "ReservaIF — API de Reservas de Salas e Laboratórios (IFES)",
-      version: "1.0.0",
+      version: "1.1.0",
       description: [
-        "API REST do sistema **ReservaIF** para gerenciamento de prédios, salas, laboratórios, solicitações de reserva, fluxo de aprovação por coordenação e cancelamentos no IFES.",
+        "API REST do sistema **ReservaIF** para gerenciamento de prédios, salas, laboratórios, solicitações de reserva, fluxo de aprovação por responsável/coordenação e cancelamentos no IFES.",
         "",
         "### Autenticação JWT (`Bearer`)",
         "1. Obtenha um token em `POST /autenticacao/login` informando `{ tipoEntrada, entrada, senha }`.",
@@ -20,10 +20,10 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
         "3. Todas as rotas protegidas enviarão o cabeçalho `Authorization: Bearer <token>`.",
         "",
         "### Perfis de Acesso (`NivelAcesso`)",
-        "- `0` — **ALUNO** (`MATRICULA_ALUNO`): solicita reservas com indicação obrigatória de servidor responsável (`responsavelId`), antecedência mínima de 12h e limite de 2 reservas a cada 12h e 2 por dia.",
-        "- `1` — **PROFESSOR** (`SIAPE_DOCENTE` sem lotação de coordenação ativa): cria reservas com confirmação imediata (`APROVADA`), aceita responsabilidade de reservas de alunos e pode solicitar à coordenação o cancelamento de reserva de aluno.",
-        "- `2` — **COORDENADOR** (`SIAPE_DOCENTE` com lotação ativa em `LotacaoCoordenacao`): gerencia prédios/salas, executa seed, aprova/rejeita/cancela reservas em seu escopo territorial e cria séries recorrentes (`SEMANAL`, `MENSAL`, `SEMESTRAL`, `ANUAL`).",
-        "- `3` — **TECNICO** (`SIAPE_TECNICO`): solicita reservas para si mesmo (`PENDENTE_APROVACAO`) ou atua como responsável por reserva de aluno, sujeito à antecedência mínima de 12h e quota de 2 reservas/12h e 2/dia.",
+        "- `1` — **ALUNO** (`MATRICULA_ALUNO`): cadastra-se com `matricula` (8 a 15 caracteres; `cursoId`, `email` e `telefone` opcionais). Solicita reservas com indicação obrigatória de servidor/coordenador responsável (`responsavelId`), antecedência mínima de 12h e limite de 2 reservas a cada 12h e 2 por dia (`status = PENDENTE_APROVACAO` até aceite do responsável).",
+        "- `2` — **TECNICO** (`SIAPE_TECNICO`): cadastra-se com `siape` (6 a 7 dígitos numéricos). Cria reservas para si mesmo com agendamento imediato (`status = AGENDADO`), respeitando antecedência mínima de 12h e limite de 2 reservas a cada 12h e 2 por dia, ou atua como responsável por reserva de aluno.",
+        "- `3` — **PROFESSOR** (`SIAPE_DOCENTE`): cadastra-se com `siape` (6 a 7 dígitos numéricos). Cria reservas com agendamento imediato (`status = AGENDADO`), aceita/aprova reservas de alunos sob sua responsabilidade (`status = APROVADA`) e pode solicitar à coordenação o cancelamento de reserva de aluno.",
+        "- `4` — **COORDENADOR** (`SIAPE_DOCENTE` com papel/lotação de coordenação): cadastra-se com `siape` (6 a 7 dígitos numéricos) e vínculo a prédio(s) coordenado(s). Gerencia prédios e salas dentro de seu escopo territorial, cria séries recorrentes (`SEMANAL`, `MENSAL`, `SEMESTRAL`, `ANUAL`) com `status = APROVADA`, e aprova/rejeita/cancela reservas do seu prédio desde que não estejam sob a responsabilidade de outro coordenador.",
         "",
         "### Regras Gerais de Agendamento",
         "- **Duração fixa do turno:** toda reserva deve ter exatamente **50 minutos** (`dataHoraFim - dataHoraInicio = 50 min`).",
@@ -52,7 +52,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
       },
       {
         name: "Usuários",
-        description: "Cadastro de alunos e servidores, consulta de perfil autenticado e catálogo de departamentos elegíveis.",
+        description: "Cadastro de alunos, professores, técnicos e coordenadores, consulta de perfil autenticado e catálogo de departamentos elegíveis.",
       },
       {
         name: "Prédios",
@@ -64,7 +64,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
       },
       {
         name: "Reservas",
-        description: "Solicitação de reservas únicas ou recorrentes, aceite de responsabilidade pelo servidor, aprovação/rejeição pela coordenação e cancelamento.",
+        description: "Solicitação de reservas únicas ou recorrentes, consulta de reservas solicitadas vs sob responsabilidade, aceite/aprovação, rejeição e cancelamento.",
       },
       {
         name: "Cancelamentos",
@@ -145,7 +145,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             },
             entrada: {
               oneOf: [{ type: "string" }, { type: "integer" }],
-              description: "Identificador de login (matrícula numérica do aluno ou SIAPE numérico do servidor).",
+              description: "Identificador de login (matrícula de 8–15 caracteres do aluno ou SIAPE de 6–7 dígitos do servidor).",
               example: "20261001",
             },
             senha: {
@@ -167,9 +167,9 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             },
             nivelAcesso: {
               type: "integer",
-              enum: [0, 1, 2, 3],
-              description: "`0 = ALUNO`, `1 = PROFESSOR`, `2 = COORDENADOR`, `3 = TECNICO`.",
-              example: 2,
+              enum: [1, 2, 3, 4],
+              description: "`1 = ALUNO`, `2 = TECNICO`, `3 = PROFESSOR`, `4 = COORDENADOR`.",
+              example: 4,
             },
             token: {
               type: "string",
@@ -180,17 +180,17 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
         },
         CriarCredencialInput: {
           type: "object",
-          required: ["tipoEntrada", "entrada", "senha"],
+          required: ["senha"],
           properties: {
             tipoEntrada: {
               type: "integer",
               enum: [0, 1, 2],
-              description: "`0 = LOCAL`, `1 = CORPORATIVA`, `2 = OAUTH`.",
+              description: "`0 = LOCAL` (padrão), `1 = CORPORATIVA`, `2 = OAUTH`.",
               example: 0,
             },
             entrada: {
               oneOf: [{ type: "string" }, { type: "integer" }],
-              description: "Matrícula numérica (aluno) ou SIAPE numérico (servidor).",
+              description: "Matrícula (8–15 caracteres, para `ALUNO`) ou SIAPE (6–7 dígitos numéricos, para `PROFESSOR`/`TECNICO`/`COORDENADOR`). Pode ser omitido se `matricula` ou `siape` for informado no topo do payload.",
               example: "20261001",
             },
             senha: {
@@ -202,9 +202,40 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             },
           },
         },
+        LotacaoCoordenacaoCadastroInput: {
+          type: "object",
+          required: ["predioId"],
+          properties: {
+            predioId: {
+              type: "string",
+              pattern: "^[a-fA-F0-9]{24}$",
+              description: "ObjectId do prédio coordenado.",
+              example: "64b7f0c2a1b2c3d4e5f60011",
+            },
+            setorId: {
+              type: "string",
+              pattern: "^[a-fA-F0-9]{24}$",
+              nullable: true,
+              description: "ObjectId opcional do setor dentro do prédio.",
+            },
+            numeroPortaria: {
+              type: "string",
+              example: "PORTARIA-IFES-2026-01",
+            },
+            dataInicio: {
+              type: "string",
+              format: "date-time",
+            },
+            dataFim: {
+              type: "string",
+              format: "date-time",
+              nullable: true,
+            },
+          },
+        },
         CadastroUsuarioInput: {
           type: "object",
-          required: ["nome", "email", "tipoCredencial", "credencial"],
+          required: ["nome", "credencial"],
           properties: {
             uuid: {
               type: "string",
@@ -219,16 +250,42 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             email: {
               type: "string",
               format: "email",
+              nullable: true,
+              description: "E-mail institucional opcional. Quando informado, é normalizado para minúsculas e validado.",
               example: "ana.souza@ifes.edu.br",
             },
             telefone: {
               type: "string",
+              nullable: true,
+              description: "Telefone de contato opcional.",
               example: "(27) 99999-0000",
+            },
+            role: {
+              type: "string",
+              enum: ["ALUNO", "PROFESSOR", "TECNICO", "COORDENADOR"],
+              description: "Papel do usuário (`ALUNO`, `PROFESSOR`, `TECNICO` ou `COORDENADOR`).",
+              example: "ALUNO",
+            },
+            nivelAcesso: {
+              type: "integer",
+              enum: [1, 2, 3, 4],
+              description: "`1 = ALUNO`, `2 = TECNICO`, `3 = PROFESSOR`, `4 = COORDENADOR`.",
+              example: 1,
             },
             tipoCredencial: {
               type: "string",
-              enum: ["MATRICULA_ALUNO", "SIAPE_DOCENTE", "SIAPE_TECNICO"],
+              enum: ["MATRICULA_ALUNO", "SIAPE_DOCENTE", "SIAPE_TECNICO", "COORDENADOR"],
               example: "MATRICULA_ALUNO",
+            },
+            matricula: {
+              oneOf: [{ type: "string" }, { type: "integer" }],
+              description: "Exclusivo para `ALUNO`: matrícula de 8 a 15 caracteres (rejeita SIAPE de 6–7 dígitos).",
+              example: "20261001",
+            },
+            siape: {
+              oneOf: [{ type: "string" }, { type: "integer" }],
+              description: "Exclusivo para `PROFESSOR`, `TECNICO` e `COORDENADOR`: SIAPE numérico de 6 a 7 dígitos (rejeita matrícula de aluno).",
+              example: "1543210",
             },
             credencial: {
               $ref: "#/components/schemas/CriarCredencialInput",
@@ -236,20 +293,83 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             cursoId: {
               type: "string",
               pattern: "^[a-fA-F0-9]{24}$",
-              description: "Obrigatório quando `tipoCredencial = MATRICULA_ALUNO`. Deve existir na coleção `cursos`.",
+              nullable: true,
+              description: "Opcional para `ALUNO`. Quando informado, deve existir na coleção `cursos`.",
               example: "64b7f0c2a1b2c3d4e5f60001",
             },
             departamentoId: {
               type: "string",
               pattern: "^[a-fA-F0-9]{24}$",
-              description: "Obrigatório quando `tipoCredencial = SIAPE_DOCENTE` ou `SIAPE_TECNICO`. Deve existir na coleção `departamentos`.",
+              nullable: true,
+              description: "Opcional para `PROFESSOR`, `TECNICO` e `COORDENADOR`. Quando informado, deve existir na coleção `departamentos`.",
               example: "64b7f0c2a1b2c3d4e5f60002",
+            },
+            predioId: {
+              type: "string",
+              pattern: "^[a-fA-F0-9]{24}$",
+              nullable: true,
+              description: "Opcional para `COORDENADOR`: vincula o coordenador ao prédio informado.",
+            },
+            predioIds: {
+              type: "array",
+              items: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
+              description: "Opcional para `COORDENADOR`: lista de prédios coordenados.",
+            },
+            numeroPortaria: {
+              type: "string",
+              description: "Portaria de designação opcional para `COORDENADOR`.",
+              example: "PORTARIA-IFES-2026-01",
+            },
+            coordenacoes: {
+              type: "array",
+              items: { $ref: "#/components/schemas/LotacaoCoordenacaoCadastroInput" },
+              description: "Opcional para `COORDENADOR`: lotações de coordenação com prédio e portaria.",
+            },
+          },
+        },
+        LotacaoCoordenacaoResposta: {
+          type: "object",
+          required: ["id", "predioId", "numeroPortaria", "ativo", "coordenador", "predio"],
+          properties: {
+            id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60555" },
+            predioId: { type: "string", example: "64b7f0c2a1b2c3d4e5f60011" },
+            setorId: { type: "string", nullable: true, example: null },
+            numeroPortaria: { type: "string", example: "PORTARIA-IFES-2026-01" },
+            ativo: { type: "boolean", example: true },
+            coordenador: {
+              type: "object",
+              required: ["id", "nome", "siape"],
+              properties: {
+                id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60333" },
+                nome: { type: "string", example: "Prof. Carlos Mendes" },
+                siape: { type: "string", example: "1543210" },
+                email: { type: "string", nullable: true, example: "carlos.mendes@ifes.edu.br" },
+              },
+            },
+            predio: {
+              type: "object",
+              nullable: true,
+              properties: {
+                id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60011" },
+                nome: { type: "string", example: "Prédio TI" },
+                campusId: { type: "string", nullable: true },
+                setorId: { type: "string", nullable: true },
+              },
+            },
+            setor: {
+              type: "object",
+              nullable: true,
+              properties: {
+                id: { type: "string" },
+                nome: { type: "string" },
+                sigla: { type: "string", nullable: true },
+              },
             },
           },
         },
         UsuarioCadastrado: {
           type: "object",
-          required: ["uuid", "nivelAcesso"],
+          required: ["uuid", "nivelAcesso", "role", "nome", "tipoCredencial", "identificador", "coordenacoes"],
           properties: {
             uuid: {
               type: "string",
@@ -257,8 +377,70 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             },
             nivelAcesso: {
               type: "integer",
-              enum: [0, 1, 2, 3],
-              example: 0,
+              enum: [1, 2, 3, 4],
+              example: 1,
+            },
+            role: {
+              type: "string",
+              enum: ["ALUNO", "TECNICO", "PROFESSOR", "COORDENADOR"],
+              example: "ALUNO",
+            },
+            nome: {
+              type: "string",
+              example: "Ana Clara Souza",
+            },
+            email: {
+              type: "string",
+              nullable: true,
+              example: "ana.souza@ifes.edu.br",
+            },
+            telefone: {
+              type: "string",
+              nullable: true,
+              example: "(27) 99999-0000",
+            },
+            tipoCredencial: {
+              type: "string",
+              enum: ["MATRICULA_ALUNO", "SIAPE_DOCENTE", "SIAPE_TECNICO"],
+              example: "MATRICULA_ALUNO",
+            },
+            identificador: {
+              type: "string",
+              example: "20261001",
+            },
+            aluno: {
+              type: "object",
+              nullable: true,
+              properties: {
+                matricula: { type: "string", example: "20261001" },
+                curso: {
+                  type: "object",
+                  nullable: true,
+                  properties: {
+                    id: { type: "string" },
+                    nome: { type: "string" },
+                  },
+                },
+              },
+            },
+            servidor: {
+              type: "object",
+              nullable: true,
+              properties: {
+                siape: { type: "string", example: "1543210" },
+                departamento: {
+                  type: "object",
+                  nullable: true,
+                  properties: {
+                    id: { type: "string" },
+                    nome: { type: "string" },
+                  },
+                },
+              },
+            },
+            coordenacoes: {
+              type: "array",
+              items: { $ref: "#/components/schemas/LotacaoCoordenacaoResposta" },
             },
           },
         },
@@ -290,7 +472,6 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           required: [
             "uuid",
             "nome",
-            "email",
             "nivelAcesso",
             "role",
             "tipoCredencial",
@@ -302,12 +483,12 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           properties: {
             uuid: { type: "string", example: "64b7f0c2a1b2c3d4e5f60333" },
             nome: { type: "string", example: "Prof. Carlos Mendes" },
-            email: { type: "string", format: "email", example: "carlos.mendes@ifes.edu.br" },
+            email: { type: "string", format: "email", nullable: true, example: "carlos.mendes@ifes.edu.br" },
             telefone: { type: "string", nullable: true, example: "(27) 98888-1111" },
-            nivelAcesso: { type: "integer", enum: [0, 1, 2, 3], example: 2 },
+            nivelAcesso: { type: "integer", enum: [1, 2, 3, 4], example: 4 },
             role: {
               type: "string",
-              enum: ["ALUNO", "PROFESSOR", "COORDENADOR", "TECNICO"],
+              enum: ["ALUNO", "TECNICO", "PROFESSOR", "COORDENADOR"],
               example: "COORDENADOR",
             },
             tipoCredencial: {
@@ -323,7 +504,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               nullable: true,
               properties: {
                 matricula: { type: "string" },
-                curso: { type: "object", additionalProperties: true },
+                curso: { type: "object", nullable: true, additionalProperties: true },
               },
             },
             servidor: {
@@ -331,15 +512,12 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               nullable: true,
               properties: {
                 siape: { type: "string" },
-                departamento: { type: "object", additionalProperties: true },
+                departamento: { type: "object", nullable: true, additionalProperties: true },
               },
             },
             coordenacoes: {
               type: "array",
-              items: {
-                type: "object",
-                additionalProperties: true,
-              },
+              items: { $ref: "#/components/schemas/LotacaoCoordenacaoResposta" },
             },
           },
         },
@@ -551,6 +729,38 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             canceladoEm: { type: "string", format: "date-time", example: "2026-10-20T14:00:00.000Z" },
           },
         },
+        UsuarioAssociadoReserva: {
+          type: "object",
+          required: ["id", "nome", "tipoCredencial"],
+          properties: {
+            id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60222" },
+            nome: { type: "string", example: "Ana Clara Souza" },
+            emailInstitucional: { type: "string", nullable: true, example: "ana.souza@ifes.edu.br" },
+            telefone: { type: "string", nullable: true, example: "(27) 99999-0000" },
+            codigoLogin: { type: "string", example: "20261001" },
+            tipoCredencial: {
+              type: "string",
+              enum: ["MATRICULA_ALUNO", "SIAPE_DOCENTE", "SIAPE_TECNICO"],
+            },
+            nivelAcesso: { type: "integer", enum: [1, 2, 3, 4], example: 1 },
+            curso: {
+              type: "object",
+              nullable: true,
+              properties: {
+                id: { type: "string" },
+                nome: { type: "string" },
+              },
+            },
+            departamento: {
+              type: "object",
+              nullable: true,
+              properties: {
+                id: { type: "string" },
+                nome: { type: "string" },
+              },
+            },
+          },
+        },
         Reserva: {
           type: "object",
           required: [
@@ -593,7 +803,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             status: {
               type: "string",
               enum: ["PENDENTE_APROVACAO", "APROVADA", "AGENDADO", "REJEITADA", "CANCELADA", "CONCLUIDA"],
-              example: "PENDENTE_APROVACAO",
+              example: "APROVADA",
             },
             motivoRejeicao: { type: "string", nullable: true, example: null },
             cancelamento: {
@@ -608,6 +818,58 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               enum: ["DOMINGO", "SEGUNDA", "TERCA", "QUARTA", "QUINTA", "SEXTA", "SABADO"],
               example: "QUARTA",
             },
+            sala: {
+              type: "object",
+              nullable: true,
+              properties: {
+                id: { type: "string" },
+                predioId: { type: "string" },
+                codigo: { type: "string", nullable: true },
+                numSala: { type: "integer", nullable: true },
+                nomeSala: { type: "string" },
+                andar: { type: "integer", nullable: true },
+                capacidade: { type: "integer", nullable: true },
+                tipo: { type: "string", nullable: true },
+                ativa: { type: "boolean" },
+                predio: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string" },
+                    nome: { type: "string" },
+                    campusId: { type: "string", nullable: true },
+                    setorId: { type: "string", nullable: true },
+                    endereco: { $ref: "#/components/schemas/Endereco" },
+                  },
+                },
+                recursos: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      id: { type: "string" },
+                      descricao: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+            solicitante: {
+              allOf: [{ $ref: "#/components/schemas/UsuarioAssociadoReserva" }],
+              nullable: true,
+            },
+            responsavel: {
+              allOf: [{ $ref: "#/components/schemas/UsuarioAssociadoReserva" }],
+              nullable: true,
+            },
+            analisadoPor: {
+              allOf: [{ $ref: "#/components/schemas/UsuarioAssociadoReserva" }],
+              nullable: true,
+            },
+            serieRecorrencia: {
+              type: "object",
+              nullable: true,
+              additionalProperties: true,
+            },
           },
         },
         SerieRecorrencia: {
@@ -616,7 +878,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             "id",
             "salaId",
             "criadoPorId",
-            "tipo",
+            "tipoRecorrencia",
             "diasSemana",
             "horaInicio",
             "horaFim",
@@ -628,7 +890,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             id: { type: "string", example: "64b7f0c2a1b2c3d4e5f60888" },
             salaId: { type: "string", example: "64b7f0c2a1b2c3d4e5f60111" },
             criadoPorId: { type: "string", example: "64b7f0c2a1b2c3d4e5f60333" },
-            tipo: {
+            tipoRecorrencia: {
               type: "string",
               enum: ["SEMANAL", "MENSAL", "SEMESTRAL", "ANUAL"],
               example: "SEMESTRAL",
@@ -652,7 +914,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           type: "object",
           required: ["tipo"],
           description:
-            "Exclusivo para Coordenador. Em `SEMANAL`, `dataFim` e `diasSemana` são obrigatórios. Em `MENSAL`, `SEMESTRAL` e `ANUAL`, o horizonte e o dia da semana são calculados automaticamente quando omitidos.",
+            "Exclusivo para Coordenador em seu prédio coordenado. Em `SEMANAL`, `dataFim` e `diasSemana` são obrigatórios. Em `MENSAL`, `SEMESTRAL` e `ANUAL`, o horizonte e o dia da semana são calculados automaticamente quando omitidos.",
           properties: {
             tipo: {
               type: "string",
@@ -707,7 +969,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               type: "string",
               pattern: "^[a-fA-F0-9]{24}$",
               description:
-                "Obrigatório para `ALUNO` (deve ser um Servidor ativo). Opcional para `COORDENADOR`. Não permitido delegar para outro usuário quando solicitante é `PROFESSOR` ou `TECNICO`.",
+                "Obrigatório para `ALUNO` (deve ser um Servidor ou Coordenador ativo). Opcional para `COORDENADOR`. Não permitido delegar para outro usuário quando solicitante é `PROFESSOR` ou `TECNICO`.",
               example: "64b7f0c2a1b2c3d4e5f60333",
             },
             recorrencia: {
@@ -809,7 +1071,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           tags: ["Autenticação"],
           summary: "Autenticar usuário e emitir token JWT",
           description:
-            "Valida a credencial (`tipoEntrada`, `entrada` e `senha`) de um usuário ativo e retorna `{ uuid, nivelAcesso, token }`. Docentes com lotação de coordenação ativa recebem `nivelAcesso = 2` (`COORDENADOR`).",
+            "Valida a credencial (`tipoEntrada`, `entrada` e `senha`) de um usuário ativo e retorna `{ uuid, nivelAcesso, token }`.",
           security: [],
           requestBody: {
             required: true,
@@ -913,9 +1175,13 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
       "/usuarios": {
         post: {
           tags: ["Usuários"],
-          summary: "Cadastrar usuário (aluno ou servidor)",
-          description:
-            "Cadastra um novo usuário e sua credencial. Para `SIAPE_DOCENTE` ou `SIAPE_TECNICO`, é obrigatório informar o cabeçalho `x-provision-key` correspondente a `USER_PROVISION_KEY`. Para `MATRICULA_ALUNO`, o cabeçalho não é necessário.",
+          summary: "Cadastrar usuário (ALUNO, PROFESSOR, TECNICO ou COORDENADOR)",
+          description: [
+            "Cadastra um novo usuário e sua credencial em transação:",
+            "- **ALUNO:** usa `matricula` (8 a 15 caracteres; não aceita SIAPE). `cursoId`, `email` e `telefone` são opcionais.",
+            "- **PROFESSOR / TECNICO / COORDENADOR:** usam `siape` (6 a 7 dígitos numéricos; não aceita matrícula de aluno). `departamentoId`, `email` e `telefone` são opcionais.",
+            "- **COORDENADOR:** aceita opcionalmente `predioId`, `predioIds` ou `coordenacoes` para vincular o(s) prédio(s) sob sua coordenação.",
+          ].join("\n"),
           security: [],
           parameters: [
             {
@@ -923,7 +1189,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               in: "header",
               required: false,
               description:
-                "Chave de provisionamento obrigatória apenas para cadastro de servidores (`SIAPE_DOCENTE` e `SIAPE_TECNICO`).",
+                "Chave de provisionamento para cadastro de servidores quando `USER_PROVISION_KEY` estiver configurada no ambiente.",
               schema: { type: "string" },
             },
           ],
@@ -945,7 +1211,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               },
             },
             "400": {
-              description: "Dados de cadastro inválidos (`VALIDACAO`).",
+              description: "Dados de cadastro inválidos ou conflito entre papel e identificador (`VALIDACAO`).",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErroPadrao" },
@@ -953,7 +1219,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               },
             },
             "403": {
-              description: "Chave `x-provision-key` ausente ou inválida ao cadastrar servidor (`PERMISSAO_NEGADA`).",
+              description: "Chave `x-provision-key` ausente ou inválida quando exigida pelo ambiente (`PERMISSAO_NEGADA`).",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErroPadrao" },
@@ -974,8 +1240,9 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
       "/usuarios/alunos": {
         post: {
           tags: ["Usuários"],
-          summary: "Cadastrar aluno (rota alias de POST /usuarios)",
-          description: "Atalho de rota para `POST /usuarios` voltado ao cadastro de alunos (`MATRICULA_ALUNO`).",
+          summary: "Cadastrar aluno (ALUNO)",
+          description:
+            "Rota dedicada para cadastro de `ALUNO` (`MATRICULA_ALUNO`, `nivelAcesso = 1`). Exige `matricula` (ou `credencial.entrada` com formato de matrícula) e rejeita `siape`. `cursoId`, `email` e `telefone` são opcionais.",
           security: [],
           requestBody: {
             required: true,
@@ -995,7 +1262,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               },
             },
             "400": {
-              description: "Dados inválidos (`VALIDACAO`).",
+              description: "Dados inválidos ou tentativa de usar SIAPE (`VALIDACAO`).",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErroPadrao" },
@@ -1016,16 +1283,16 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
       "/usuarios/servidores": {
         post: {
           tags: ["Usuários"],
-          summary: "Cadastrar servidor docente ou técnico (rota alias de POST /usuarios)",
+          summary: "Cadastrar servidor (PROFESSOR, TECNICO ou COORDENADOR)",
           description:
-            "Atalho de rota para `POST /usuarios` voltado ao cadastro de servidores (`SIAPE_DOCENTE` / `SIAPE_TECNICO`). Exige cabeçalho `x-provision-key`.",
+            "Rota para cadastro de servidores (`PROFESSOR`, `TECNICO` ou `COORDENADOR`) utilizando `siape` (6 a 7 dígitos). Rejeita `ALUNO` e `matricula`.",
           security: [],
           parameters: [
             {
               name: "x-provision-key",
               in: "header",
-              required: true,
-              description: "Chave de provisionamento (`USER_PROVISION_KEY`).",
+              required: false,
+              description: "Chave de provisionamento quando `USER_PROVISION_KEY` estiver configurada.",
               schema: { type: "string" },
             },
           ],
@@ -1073,12 +1340,141 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           },
         },
       },
+      "/usuarios/professores": {
+        post: {
+          tags: ["Usuários"],
+          summary: "Cadastrar professor (PROFESSOR)",
+          description:
+            "Rota dedicada para cadastro de `PROFESSOR` (`SIAPE_DOCENTE`, `nivelAcesso = 3`). Exige `siape` de 6 a 7 dígitos e rejeita `matricula`.",
+          security: [],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/CadastroUsuarioInput" },
+              },
+            },
+          },
+          responses: {
+            "201": {
+              description: "Professor cadastrado com sucesso.",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/UsuarioCadastrado" },
+                },
+              },
+            },
+            "400": {
+              description: "Dados inválidos (`VALIDACAO`).",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErroPadrao" },
+                },
+              },
+            },
+            "409": {
+              description: "Registro duplicado (`CONFLITO`).",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErroPadrao" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/usuarios/tecnicos": {
+        post: {
+          tags: ["Usuários"],
+          summary: "Cadastrar técnico administrativo (TECNICO)",
+          description:
+            "Rota dedicada para cadastro de `TECNICO` (`SIAPE_TECNICO`, `nivelAcesso = 2`). Exige `siape` de 6 a 7 dígitos e rejeita `matricula`.",
+          security: [],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/CadastroUsuarioInput" },
+              },
+            },
+          },
+          responses: {
+            "201": {
+              description: "Técnico cadastrado com sucesso.",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/UsuarioCadastrado" },
+                },
+              },
+            },
+            "400": {
+              description: "Dados inválidos (`VALIDACAO`).",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErroPadrao" },
+                },
+              },
+            },
+            "409": {
+              description: "Registro duplicado (`CONFLITO`).",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErroPadrao" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/usuarios/coordenadores": {
+        post: {
+          tags: ["Usuários"],
+          summary: "Cadastrar coordenador (COORDENADOR)",
+          description:
+            "Rota dedicada para cadastro de `COORDENADOR` (`SIAPE_DOCENTE`, `nivelAcesso = 4`). Exige `siape` de 6 a 7 dígitos, rejeita `matricula` e permite informar `predioId`, `predioIds` ou `coordenacoes` para vincular os prédios coordenados.",
+          security: [],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/CadastroUsuarioInput" },
+              },
+            },
+          },
+          responses: {
+            "201": {
+              description: "Coordenador cadastrado com sucesso.",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/UsuarioCadastrado" },
+                },
+              },
+            },
+            "400": {
+              description: "Dados inválidos (`VALIDACAO`).",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErroPadrao" },
+                },
+              },
+            },
+            "409": {
+              description: "Registro duplicado (`CONFLITO`).",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErroPadrao" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/usuarios/me": {
         get: {
           tags: ["Usuários"],
           summary: "Consultar perfil do usuário autenticado",
           description:
-            "Retorna os dados do usuário correspondente ao token JWT, incluindo `nivelAcesso`, `role`, vínculo de aluno/servidor e lotações de coordenação ativas.",
+            "Retorna os dados do usuário correspondente ao token JWT, incluindo `nivelAcesso`, `role`, vínculo de aluno/servidor e lotações de coordenação ativas com objetos `coordenador` e `predio`.",
           security: [{ bearerAuth: [] }],
           responses: {
             "200": {
@@ -1168,7 +1564,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
         post: {
           tags: ["Prédios"],
           summary: "Criar prédio (Coordenador)",
-          description: "Cadastra um novo prédio. Requer usuário autenticado com perfil `COORDENADOR` (`nivelAcesso = 2`).",
+          description: "Cadastra um novo prédio. Requer usuário autenticado com perfil `COORDENADOR` (`nivelAcesso = 4`).",
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -1302,8 +1698,9 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
         },
         patch: {
           tags: ["Prédios"],
-          summary: "Atualizar prédio (Coordenador)",
-          description: "Atualiza parcialmente os dados de um prédio existente.",
+          summary: "Atualizar prédio (Coordenador do prédio)",
+          description:
+            "Atualiza parcialmente os dados de um prédio existente. Coordenadores com lotação em prédio(s) específico(s) só podem alterar seus próprios prédios coordenados.",
           security: [{ bearerAuth: [] }],
           parameters: [{ $ref: "#/components/parameters/ObjectIdPathParam" }],
           requestBody: {
@@ -1340,7 +1737,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               },
             },
             "403": {
-              description: "Sem permissão (`PERMISSAO_NEGADA`).",
+              description: "Sem permissão ou prédio fora do escopo do coordenador (`PERMISSAO_NEGADA`).",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErroPadrao" },
@@ -1367,9 +1764,9 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
         },
         delete: {
           tags: ["Prédios"],
-          summary: "Remover prédio (Coordenador)",
+          summary: "Remover prédio (Coordenador do prédio)",
           description:
-            "Remove um prédio que não possua salas associadas. Caso possua salas vinculadas, retorna `422 REGRA_DE_NEGOCIO`.",
+            "Remove um prédio sob escopo do coordenador que não possua salas associadas. Caso possua salas vinculadas, retorna `422 REGRA_DE_NEGOCIO`.",
           security: [{ bearerAuth: [] }],
           parameters: [{ $ref: "#/components/parameters/ObjectIdPathParam" }],
           responses: {
@@ -1393,7 +1790,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               },
             },
             "403": {
-              description: "Sem permissão (`PERMISSAO_NEGADA`).",
+              description: "Sem permissão ou prédio fora do escopo do coordenador (`PERMISSAO_NEGADA`).",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErroPadrao" },
@@ -1607,9 +2004,9 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
         },
         post: {
           tags: ["Salas"],
-          summary: "Criar sala (Coordenador)",
+          summary: "Criar sala (Coordenador do prédio)",
           description:
-            "Cadastra uma nova sala associada a um prédio existente. O nome da sala é único por prédio (`@@unique([predioId, nomeSala])`).",
+            "Cadastra uma nova sala associada a um prédio existente dentro do escopo de coordenação do usuário. O nome da sala é único por prédio (`@@unique([predioId, nomeSala])`).",
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -1645,7 +2042,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               },
             },
             "403": {
-              description: "Apenas coordenadores podem criar salas (`PERMISSAO_NEGADA`).",
+              description: "Apenas coordenadores vinculados ao prédio podem criar salas (`PERMISSAO_NEGADA`).",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErroPadrao" },
@@ -1707,8 +2104,8 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
         },
         patch: {
           tags: ["Salas"],
-          summary: "Atualizar sala (Coordenador)",
-          description: "Atualiza parcialmente os dados de uma sala (nome, capacidade, prédio, status `ativa`, etc.).",
+          summary: "Atualizar sala (Coordenador do prédio)",
+          description: "Atualiza parcialmente os dados de uma sala (nome, capacidade, prédio, status `ativa`, etc.) dentro do prédio coordenado.",
           security: [{ bearerAuth: [] }],
           parameters: [{ $ref: "#/components/parameters/ObjectIdPathParam" }],
           requestBody: {
@@ -1745,7 +2142,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               },
             },
             "403": {
-              description: "Sem permissão (`PERMISSAO_NEGADA`).",
+              description: "Sem permissão ou prédio fora do escopo do coordenador (`PERMISSAO_NEGADA`).",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErroPadrao" },
@@ -1772,7 +2169,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
         },
         delete: {
           tags: ["Salas"],
-          summary: "Remover sala (Coordenador)",
+          summary: "Remover sala (Coordenador do prédio)",
           description:
             "Remove uma sala que não possua histórico de reservas. Se houver reservas vinculadas, retorna `422 REGRA_DE_NEGOCIO` orientando a inativação (`PATCH /salas/:id` com `{ \"ativa\": false }`).",
           security: [{ bearerAuth: [] }],
@@ -1798,7 +2195,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               },
             },
             "403": {
-              description: "Sem permissão (`PERMISSAO_NEGADA`).",
+              description: "Sem permissão ou prédio fora do escopo do coordenador (`PERMISSAO_NEGADA`).",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErroPadrao" },
@@ -1827,9 +2224,9 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
       "/reservas": {
         get: {
           tags: ["Reservas"],
-          summary: "Listar reservas",
+          summary: "Listar reservas com objetos associados",
           description:
-            "Lista as reservas ordenadas por `dataHoraInicio` crescente, enriquecidas com o campo calculado `diaDaSemana`.",
+            "Lista as reservas ordenadas por `dataHoraInicio` crescente, enriquecidas com `diaDaSemana` e com os objetos associados `sala` (incluindo `predio`), `solicitante`, `responsavel`, `analisadoPor` e `serieRecorrencia`.",
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -1857,7 +2254,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               name: "responsavelId",
               in: "query",
               required: false,
-              description: "Filtra pelo ObjectId do servidor responsável.",
+              description: "Filtra pelo ObjectId do servidor/coordenador responsável.",
               schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
             },
             {
@@ -1879,7 +2276,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           ],
           responses: {
             "200": {
-              description: "Lista de reservas.",
+              description: "Lista de reservas detalhadas.",
               content: {
                 "application/json": {
                   schema: {
@@ -1912,10 +2309,10 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           summary: "Solicitar ou agendar reserva (única ou recorrente)",
           description: [
             "Cria uma reserva única ou uma série recorrente conforme o perfil do usuário autenticado:",
-            "- **Professor / Coordenador:** nasce `APROVADA` imediatamente, validando ausência de conflito na sala.",
-            "- **Técnico:** nasce `PENDENTE_APROVACAO`, exige 12h de antecedência e respeita o limite de 2 reservas/12h e 2/dia.",
-            "- **Aluno:** nasce `PENDENTE_APROVACAO`, exige informar `responsavelId` (Servidor ativo), 12h de antecedência e limite de 2 reservas/12h e 2/dia.",
-            "- **Recorrência (`recorrencia`):** exclusiva para `COORDENADOR` dentro do prédio/setor sob sua coordenação.",
+            "- **Professor (`PROFESSOR`):** nasce `AGENDADO` imediatamente, sem necessidade de aprovação de outra pessoa, validando ausência de conflito na sala.",
+            "- **Técnico (`TECNICO`):** nasce `AGENDADO` imediatamente, sem necessidade de aprovação de outra pessoa, respeitando 12h de antecedência e limite de 2 reservas/12h e 2/dia.",
+            "- **Coordenador (`COORDENADOR`, no prédio coordenado):** nasce `APROVADA` imediatamente, podendo criar série recorrente (`recorrencia`).",
+            "- **Aluno (`ALUNO`):** nasce `PENDENTE_APROVACAO`, exige informar `responsavelId` (Servidor ou Coordenador ativo), 12h de antecedência e limite de 2 reservas/12h e 2/dia.",
           ].join("\n"),
           security: [{ bearerAuth: [] }],
           requestBody: {
@@ -1987,11 +2384,173 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           },
         },
       },
+      "/reservas/minhas": {
+        get: {
+          tags: ["Reservas"],
+          summary: "Listar reservas criadas/solicitadas pelo usuário autenticado (solicitante)",
+          description:
+            "Retorna exclusivamente as reservas em que `solicitanteId` corresponde ao usuário autenticado no token JWT (`sub`). Permite filtros adicionais por `salaId`, `predioId`, `status` e `data`.",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "salaId",
+              in: "query",
+              required: false,
+              schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
+            },
+            {
+              name: "predioId",
+              in: "query",
+              required: false,
+              schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
+            },
+            {
+              name: "status",
+              in: "query",
+              required: false,
+              schema: {
+                type: "string",
+                enum: ["PENDENTE_APROVACAO", "APROVADA", "AGENDADO", "REJEITADA", "CANCELADA", "CONCLUIDA"],
+              },
+            },
+            {
+              name: "data",
+              in: "query",
+              required: false,
+              schema: { type: "string", format: "date" },
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Lista de reservas solicitadas pelo usuário autenticado.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/Reserva" },
+                  },
+                },
+              },
+            },
+            "401": {
+              description: "Não autenticado (`NAO_AUTENTICADO`).",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErroPadrao" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/reservas/solicitadas": {
+        get: {
+          tags: ["Reservas"],
+          summary: "Listar reservas solicitadas pelo usuário autenticado (alias de /reservas/minhas)",
+          description:
+            "Alias para `GET /reservas/minhas`: retorna as reservas em que `solicitanteId` é o usuário autenticado.",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Lista de reservas solicitadas pelo usuário autenticado.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/Reserva" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/reservas/responsavel": {
+        get: {
+          tags: ["Reservas"],
+          summary: "Listar reservas sob responsabilidade do usuário autenticado (responsavel)",
+          description:
+            "Retorna exclusivamente as reservas em que `responsavelId` corresponde ao usuário autenticado no token JWT (`sub`), permitindo ao professor, técnico ou coordenador visualizar reservas de alunos vinculadas à sua responsabilidade.",
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: "salaId",
+              in: "query",
+              required: false,
+              schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
+            },
+            {
+              name: "predioId",
+              in: "query",
+              required: false,
+              schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
+            },
+            {
+              name: "status",
+              in: "query",
+              required: false,
+              schema: {
+                type: "string",
+                enum: ["PENDENTE_APROVACAO", "APROVADA", "AGENDADO", "REJEITADA", "CANCELADA", "CONCLUIDA"],
+              },
+            },
+            {
+              name: "data",
+              in: "query",
+              required: false,
+              schema: { type: "string", format: "date" },
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Lista de reservas sob responsabilidade do usuário autenticado.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/Reserva" },
+                  },
+                },
+              },
+            },
+            "401": {
+              description: "Não autenticado (`NAO_AUTENTICADO`).",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErroPadrao" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/reservas/sob-minha-responsabilidade": {
+        get: {
+          tags: ["Reservas"],
+          summary: "Listar reservas sob minha responsabilidade (alias de /reservas/responsavel)",
+          description:
+            "Alias para `GET /reservas/responsavel`: retorna as reservas em que `responsavelId` é o usuário autenticado.",
+          security: [{ bearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Lista de reservas sob responsabilidade do usuário autenticado.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/Reserva" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
       "/reservas/{id}": {
         get: {
           tags: ["Reservas"],
           summary: "Buscar reserva por ID",
-          description: "Retorna os detalhes de uma reserva específica pelo seu `ObjectId`, enriquecida com `diaDaSemana`.",
+          description: "Retorna os detalhes de uma reserva específica pelo seu `ObjectId`, enriquecida com `diaDaSemana` e objetos concretos.",
           security: [{ bearerAuth: [] }],
           parameters: [{ $ref: "#/components/parameters/ObjectIdPathParam" }],
           responses: {
@@ -2033,14 +2592,14 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
       "/reservas/{id}/aceitar-responsabilidade": {
         patch: {
           tags: ["Reservas"],
-          summary: "Aceitar responsabilidade por reserva de aluno (Servidor responsável)",
+          summary: "Aceitar responsabilidade e aprovar reserva de aluno (Servidor/Coordenador responsável)",
           description:
-            "Etapa 1 do fluxo de reserva de aluno: o servidor (`PROFESSOR`, `TECNICO` ou `COORDENADOR`) indicado em `responsavelId` registra seu aceite (`aceitoPeloResponsavelEm`) e encaminha a solicitação ao coordenador do departamento.",
+            "O servidor (`PROFESSOR`, `TECNICO` ou `COORDENADOR`) designado em `responsavelId` aceita a responsabilidade pela reserva de aluno, valida ausência de conflito de agenda na sala e transiciona a reserva para `APROVADA`.",
           security: [{ bearerAuth: [] }],
           parameters: [{ $ref: "#/components/parameters/ObjectIdPathParam" }],
           responses: {
             "200": {
-              description: "Responsabilidade aceita e encaminhada à coordenação.",
+              description: "Responsabilidade aceita e reserva aprovada (`status = APROVADA`).",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/Reserva" },
@@ -2080,7 +2639,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               },
             },
             "409": {
-              description: "Reserva não está pendente ou já teve a responsabilidade aceita (`CONFLITO`).",
+              description: "Reserva não está pendente, já foi aceita ou há conflito de horário na sala (`CONFLITO`).",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErroPadrao" },
@@ -2093,17 +2652,17 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
       "/reservas/{id}/aprovar": {
         patch: {
           tags: ["Reservas"],
-          summary: "Aprovar reserva pendente (Coordenador ou Servidor responsável)",
+          summary: "Aprovar reserva pendente (Responsável designado ou Coordenador do prédio)",
           description: [
             "Processa a aprovação de uma reserva com status `PENDENTE_APROVACAO`:",
-            "- Se acionado pelo **Coordenador** responsável pelo prédio/setor da sala: aprova definitivamente (`status = APROVADA`), desde que reservas delegadas/de aluno já tenham sido aceitas pelo servidor responsável.",
-            "- Se acionado pelo **Servidor responsável** de uma reserva de aluno (que não seja o coordenador da sala): registra o aceite de responsabilidade (Etapa 1).",
+            "- Se acionado pelo **Servidor/Coordenador designado como responsável (`responsavelId`)**: registra o aceite e aprova a reserva (`status = APROVADA`).",
+            "- Se acionado pelo **Coordenador do prédio da sala**: aprova a reserva (`status = APROVADA`), respeitando a proibição de intervir em reservas sob a responsabilidade de outro coordenador.",
           ].join("\n"),
           security: [{ bearerAuth: [] }],
           parameters: [{ $ref: "#/components/parameters/ObjectIdPathParam" }],
           responses: {
             "200": {
-              description: "Reserva aprovada (ou responsabilidade aceita).",
+              description: "Reserva aprovada (`status = APROVADA`).",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/Reserva" },
@@ -2127,7 +2686,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               },
             },
             "403": {
-              description: "Usuário não é coordenador da sala nem servidor responsável (`PERMISSAO_NEGADA`).",
+              description: "Usuário não é o responsável designado, não coordena o prédio ou a reserva pertence a outro coordenador (`PERMISSAO_NEGADA`).",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErroPadrao" },
@@ -2164,9 +2723,9 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
       "/reservas/{id}/rejeitar": {
         patch: {
           tags: ["Reservas"],
-          summary: "Rejeitar reserva pendente (Coordenador)",
+          summary: "Rejeitar reserva pendente (Responsável designado ou Coordenador do prédio)",
           description:
-            "Rejeita uma reserva com status `PENDENTE_APROVACAO` no prédio/setor sob responsabilidade do coordenador, exigindo um `motivo`.",
+            "Rejeita uma reserva com status `PENDENTE_APROVACAO` (pelo responsável designado ou pelo coordenador do prédio, desde que não esteja sob a responsabilidade de outro coordenador), transicionando para `REJEITADA` e persistindo `motivoRejeicao`.",
           security: [{ bearerAuth: [] }],
           parameters: [{ $ref: "#/components/parameters/ObjectIdPathParam" }],
           requestBody: {
@@ -2179,7 +2738,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
           },
           responses: {
             "200": {
-              description: "Reserva rejeitada com sucesso.",
+              description: "Reserva rejeitada com sucesso (`status = REJEITADA`).",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/Reserva" },
@@ -2203,7 +2762,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
               },
             },
             "403": {
-              description: "Apenas o coordenador da sala pode rejeitar (`PERMISSAO_NEGADA`).",
+              description: "Sem permissão ou reserva sob responsabilidade de outro coordenador (`PERMISSAO_NEGADA`).",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErroPadrao" },
@@ -2237,7 +2796,7 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
             "Cancela uma reserva antes do seu horário de início (`agora < dataHoraInicio`) ou registra solicitação de cancelamento:",
             "- **Aluno / Técnico:** cancela apenas a própria reserva (`200 OK`).",
             "- **Professor:** cancela a própria reserva (`200 OK`) ou, tratando-se de reserva de aluno, registra solicitação para o coordenador do departamento do responsável (`202 Accepted`).",
-            "- **Coordenador:** cancela qualquer reserva em seu escopo (`200 OK`).",
+            "- **Coordenador:** cancela reservas do seu prédio coordenado (`200 OK`), exceto reservas sob responsabilidade de outro coordenador (`403 PERMISSAO_NEGADA`).",
           ].join("\n"),
           security: [{ bearerAuth: [] }],
           parameters: [{ $ref: "#/components/parameters/ObjectIdPathParam" }],
@@ -2517,4 +3076,3 @@ export function construirEspecificacaoOpenApi(opcoes: OpcoesOpenApi = {}): Recor
     },
   };
 }
-

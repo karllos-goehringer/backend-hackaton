@@ -6,6 +6,7 @@ import {
   NotFoundError,
 } from "../../shared/errors/app-error.js";
 import type { AtorAutenticado } from "../autenticacao/autenticacao.middleware.js";
+import { estaAtiva, type LotacaoCoordenacaoDados } from "../coordenacao/domain/lotacao-coordenacao.js";
 import { PrediosRepository } from "../predios/predios.repository.js";
 import { NivelAcesso } from "../reservas/domain/nivel-acesso.js";
 import {
@@ -46,6 +47,8 @@ export class SalasService {
     const predio = await predios.buscarResumoPorId(dados.predioId);
     if (!predio) throw new NotFoundError("Predio nao encontrado.");
 
+    await this.garantirEscopoPredioCoordenador(ator, dados.predioId);
+
     const duplicada = await salas.buscarPorPredioENome(dados.predioId, dados.nomeSala);
     if (duplicada) {
       throw new ConflictError(
@@ -69,6 +72,8 @@ export class SalasService {
     const atual = await salas.buscarPorId(id);
     if (!atual) throw new NotFoundError("Sala nao encontrada.");
 
+    await this.garantirEscopoPredioCoordenador(ator, atual.predioId);
+
     const predioIdAlvo = dados.predioId ?? atual.predioId;
     const nomeSalaAlvo = dados.nomeSala ?? atual.nomeSala;
 
@@ -76,6 +81,7 @@ export class SalasService {
     if (dados.predioId && dados.predioId !== atual.predioId) {
       const novoPredio = await predios.buscarResumoPorId(dados.predioId);
       if (!novoPredio) throw new NotFoundError("Predio nao encontrado.");
+      await this.garantirEscopoPredioCoordenador(ator, dados.predioId);
       nomePredioAlvo = novoPredio.nome;
     }
 
@@ -98,6 +104,8 @@ export class SalasService {
     const atual = await salas.buscarPorId(id);
     if (!atual) throw new NotFoundError("Sala nao encontrada.");
 
+    await this.garantirEscopoPredioCoordenador(ator, atual.predioId);
+
     const totalReservas = await salas.contarReservasPorSala(id);
     if (totalReservas > 0) {
       throw new BusinessRuleError(
@@ -113,5 +121,24 @@ export class SalasService {
       throw new ForbiddenError("Apenas coordenadores podem cadastrar, alterar ou remover salas.");
     }
   }
-}
 
+  private async garantirEscopoPredioCoordenador(ator: AtorAutenticado, predioId: string): Promise<void> {
+    const delegate = (this.prisma as PrismaClient & {
+      lotacaoCoordenacao?: {
+        findMany?: (args: unknown) => Promise<LotacaoCoordenacaoDados[]>;
+      };
+    }).lotacaoCoordenacao;
+    if (!delegate || typeof delegate.findMany !== "function") return;
+
+    const lotacoes = await delegate.findMany({
+      where: { docenteId: ator.id },
+      select: { predioId: true, setorId: true, ativo: true },
+    });
+    const ativas = lotacoes.filter((l) => estaAtiva(l));
+    if (ativas.length > 0 && !ativas.some((l) => l.predioId === predioId)) {
+      throw new ForbiddenError(
+        "Apenas o coordenador vinculado ao predio desta sala pode gerencia-la.",
+      );
+    }
+  }
+}

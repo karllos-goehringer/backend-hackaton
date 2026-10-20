@@ -4,6 +4,8 @@ export interface LotacaoCoordenacaoDados {
   predioId: string;
   setorId: string | null;
   ativo: boolean;
+  dataInicio?: Date;
+  dataFim?: Date | null;
 }
 
 /** A coordenacao permanece vigente ate a lotacao ser desativada. */
@@ -11,8 +13,10 @@ export function estaAtiva(lotacao: LotacaoCoordenacaoDados): boolean {
   return lotacao.ativo;
 }
 
-/** A lotacao cobre a sala se for do mesmo Predio, ou se tiver Setor definido igual ao Setor do Predio. */
+/**
+ * A lotacao cobre a sala estritamente quando pertence ao mesmo Predio coordenado.
+ * Compartilhar unidade/setor de coordenacao nao concede acesso a outros predios.
+ */
 export function cobreSala(lotacao: LotacaoCoordenacaoDados, sala: LocalizacaoSala): boolean {
-  if (lotacao.predioId === sala.predioId) return true;
-  return lotacao.setorId !== null && sala.setorId !== null && lotacao.setorId === sala.setorId;
+  return lotacao.predioId === sala.predioId;
 }

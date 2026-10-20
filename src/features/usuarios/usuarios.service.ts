@@ -5,7 +5,7 @@ import jwt from "jsonwebtoken";
 import { ConflictError, ForbiddenError, NotFoundError, UnauthorizedError, ValidationError } from "../../shared/errors/app-error.js";
 import { executarTransacao } from "../../shared/database/transacao.js";
 import { NivelAcesso } from "./nivel-acesso.js";
-import type { CadastroUsuarioDTO } from "./cadastro-usuario.dto.js";
+import type { CadastroUsuarioDTO, LotacaoCoordenacaoCadastroInput, PapelCadastroUsuario } from "./cadastro-usuario.dto.js";
 import { TipoEntrada, type AutenticarCredencialDTO, type CredencialAutenticadaDTO } from "./credencial.dto.js";
 import { ID_CATALOGO_DEPARTAMENTOS } from "./departamentos-elegiveis.repository.js";
 import type { DepartamentoElegivel } from "./departamentos-elegiveis.js";
@@ -13,12 +13,38 @@ import { obterJwtSecret as obterJwtSecretPorAmbiente, obterOpcoesAssinaturaJwt }
 import { UsuariosRepository } from "./usuarios.repository.js";
 
 const CUSTO_HASH = 12;
-const TOKEN_TTL = "8h";
+
+/**
+ * Regra defensavel de formato institucional IFES:
+ * - SIAPE (PROFESSOR, TECNICO, COORDENADOR): 6 a 7 digitos numericos (nao zerados).
+ * - Matricula (ALUNO): 8 a 15 caracteres (numericos de 8 a 15 digitos ou formato alfanumerico
+ *   iniciado pelo ano letivo YYYY + 4 a 11 caracteres alfanumericos, ex.: 20261001, 20241INFO0012).
+ * Isso impede uso cruzado entre matricula de aluno e SIAPE de servidor.
+ */
+const REGEX_SIAPE = /^(?!0+$)\d{6,7}$/;
+const REGEX_MATRICULA_NUMERICA = /^(?!0+$)\d{8,15}$/;
+const REGEX_MATRICULA_ALFANUMERICA = /^(19|20)\d{2}[A-Z0-9]{4,11}$/i;
+
+export function ehSiapeValido(valor: string): boolean {
+  return REGEX_SIAPE.test(valor);
+}
+
+export function ehMatriculaAlunoValida(valor: string): boolean {
+  if (REGEX_SIAPE.test(valor)) return false;
+  return REGEX_MATRICULA_NUMERICA.test(valor) || REGEX_MATRICULA_ALFANUMERICA.test(valor);
+}
 
 export interface DependenciasUsuariosService {
   prisma: PrismaClient;
   jwtSecret?: string;
   provisionKey?: string;
+}
+
+export interface OpcoesCadastroUsuario {
+  exigirPapel?: PapelCadastroUsuario;
+  papelRota?: PapelCadastroUsuario;
+  permitirServidorBase?: boolean;
+  exigirServidor?: boolean;
 }
 
 export class UsuariosService {
@@ -36,16 +62,31 @@ export class UsuariosService {
     this.provisionKey = provisionKey ?? "";
   }
 
-  async cadastrar(dto: CadastroUsuarioDTO, chaveProvisionamento?: string): Promise<{ uuid: string; nivelAcesso: NivelAcesso }> {
-    const dados = validarCadastro(dto);
-    if (dados.tipoCredencial !== TipoCredencial.MATRICULA_ALUNO && !chaveValida(chaveProvisionamento, this.provisionKey)) {
+  async cadastrar(
+    dto: CadastroUsuarioDTO,
+    chaveProvisionamento?: string,
+    opcoes?: OpcoesCadastroUsuario,
+  ) {
+    const dados = validarCadastro(dto, opcoes);
+    if (
+      dados.tipoCredencial !== TipoCredencial.MATRICULA_ALUNO &&
+      this.provisionKey.trim().length > 0 &&
+      !chaveValida(chaveProvisionamento, this.provisionKey)
+    ) {
       throw new ForbiddenError("Cadastro de servidor requer provisionamento autorizado.");
     }
-    await this.validarReferencia(dados.tipoCredencial, dados.cursoId, dados.departamentoId);
+
+    await this.validarReferencia(
+      dados.tipoCredencial,
+      dados.cursoId,
+      dados.departamentoId,
+      dados.coordenacoes,
+    );
+
     const repo = new UsuariosRepository(this.prisma);
     const duplicado = await repo.buscarPorIdentificadorUnico({
       ...(dados.uuid ? { id: dados.uuid } : {}),
-      email: dados.email,
+      ...(dados.email ? { email: dados.email } : {}),
       codigoLogin: dados.codigoLogin,
     });
     if (duplicado) throw new ConflictError("UUID, email ou identificador de login ja cadastrado.");
@@ -53,34 +94,90 @@ export class UsuariosService {
     const senhaHash = await bcrypt.hash(dados.credencial.senha, CUSTO_HASH);
 
     try {
-      const usuario = await executarTransacao(this.prisma, async (tx) => {
+      const resultado = await executarTransacao(this.prisma, async (tx) => {
         const usuarios = new UsuariosRepository(tx);
         const criado = await usuarios.criarUsuario({
           ...(dados.uuid ? { id: dados.uuid } : {}),
           nome: dados.nome,
-          emailInstitucional: dados.email,
-          telefone: dados.telefone,
+          ...(dados.email ? { emailInstitucional: dados.email } : {}),
+          ...(dados.telefone ? { telefone: dados.telefone } : {}),
           codigoLogin: dados.codigoLogin,
           tipoCredencial: dados.tipoCredencial,
-          nivelAcesso: nivelParaTipo(dados.tipoCredencial),
+          nivelAcesso: dados.nivelAcesso,
           ativo: true,
           ...(dados.tipoCredencial === TipoCredencial.MATRICULA_ALUNO
-            ? { cursoId: dados.cursoId }
-            : { departamentoId: dados.departamentoId }),
+            ? (dados.cursoId ? { cursoId: dados.cursoId } : {})
+            : (dados.departamentoId ? { departamentoId: dados.departamentoId } : {})),
         });
+
         await usuarios.criarCredencial({
           usuarioId: criado.id,
           tipoEntrada: paraTipoEntradaPrisma(dados.credencial.tipoEntrada),
           entrada: dados.credencial.entrada,
           senhaHash,
         });
+
+        if (dados.papel === "COORDENADOR" && dados.coordenacoes.length > 0) {
+          for (const coord of dados.coordenacoes) {
+            await usuarios.criarCoordenacao({
+              docenteId: criado.id,
+              predioId: coord.predioId,
+              ...(coord.setorId ? { setorId: coord.setorId } : {}),
+              numeroPortaria: coord.numeroPortaria,
+              ativo: true,
+            });
+          }
+        }
+
         return criado;
       });
-      const nivelAcesso = usuario.tipoCredencial === TipoCredencial.SIAPE_DOCENTE &&
-        await new UsuariosRepository(this.prisma).possuiLotacaoAtiva(usuario.id)
-        ? NivelAcesso.COORDENADOR
-        : nivelParaTipo(usuario.tipoCredencial);
-      return { uuid: usuario.id, nivelAcesso };
+
+      const perfil = await new UsuariosRepository(this.prisma).buscarPerfilCompleto(resultado.id);
+      const lotacoesAtivas = (perfil?.lotacoesCoordenacao ?? []).filter((l) => l.ativo);
+      const nivelAcesso =
+        resultado.nivelAcesso === NivelAcesso.COORDENADOR ||
+        (resultado.tipoCredencial === TipoCredencial.SIAPE_DOCENTE && lotacoesAtivas.length > 0)
+          ? NivelAcesso.COORDENADOR
+          : nivelParaTipo(resultado.tipoCredencial);
+
+      return {
+        uuid: resultado.id,
+        nivelAcesso,
+        role: NivelAcesso[nivelAcesso],
+        nome: resultado.nome,
+        email: resultado.emailInstitucional ?? null,
+        telefone: resultado.telefone ?? null,
+        tipoCredencial: resultado.tipoCredencial,
+        identificador: resultado.codigoLogin,
+        ...(resultado.tipoCredencial === TipoCredencial.MATRICULA_ALUNO
+          ? {
+              aluno: {
+                matricula: resultado.codigoLogin,
+                curso: perfil?.curso ?? null,
+              },
+            }
+          : {
+              servidor: {
+                siape: resultado.codigoLogin,
+                departamento: perfil?.departamento ?? null,
+              },
+            }),
+        coordenacoes: lotacoesAtivas.map((lotacao) => ({
+          id: lotacao.id,
+          predioId: lotacao.predioId,
+          setorId: lotacao.setorId,
+          numeroPortaria: lotacao.numeroPortaria,
+          ativo: lotacao.ativo,
+          coordenador: {
+            id: resultado.id,
+            nome: resultado.nome,
+            siape: resultado.codigoLogin,
+            email: resultado.emailInstitucional ?? null,
+          },
+          predio: lotacao.predio ?? null,
+          setor: lotacao.setor ?? null,
+        })),
+      };
     } catch (error) {
       if (ehErroUnicidadePrisma(error)) {
         throw new ConflictError("UUID, email, matricula, SIAPE ou entrada de credencial ja cadastrado.");
@@ -115,8 +212,9 @@ export class UsuariosService {
 
     let nivelAcesso = nivelParaTipo(credencial.usuario.tipoCredencial);
     if (
-      credencial.usuario.tipoCredencial === TipoCredencial.SIAPE_DOCENTE &&
-      await new UsuariosRepository(this.prisma).possuiLotacaoAtiva(credencial.usuario.id)
+      credencial.usuario.nivelAcesso === NivelAcesso.COORDENADOR ||
+      (credencial.usuario.tipoCredencial === TipoCredencial.SIAPE_DOCENTE &&
+        await new UsuariosRepository(this.prisma).possuiLotacaoAtiva(credencial.usuario.id))
     ) {
       nivelAcesso = NivelAcesso.COORDENADOR;
     }
@@ -141,26 +239,46 @@ export class UsuariosService {
     if (!perfil || !perfil.ativo) throw new NotFoundError("Perfil de usuario nao encontrado.");
 
     const lotacoesAtivas = perfil.lotacoesCoordenacao.filter((lotacao) => lotacao.ativo);
-    const nivelAcesso = perfil.tipoCredencial === TipoCredencial.SIAPE_DOCENTE && lotacoesAtivas.length > 0
-      ? NivelAcesso.COORDENADOR
-      : nivelParaTipo(perfil.tipoCredencial);
+    const nivelAcesso =
+      perfil.nivelAcesso === NivelAcesso.COORDENADOR ||
+      (perfil.tipoCredencial === TipoCredencial.SIAPE_DOCENTE && lotacoesAtivas.length > 0)
+        ? NivelAcesso.COORDENADOR
+        : nivelParaTipo(perfil.tipoCredencial);
 
     return {
       uuid: perfil.id,
       nome: perfil.nome,
-      email: perfil.emailInstitucional,
-      telefone: perfil.telefone,
+      email: perfil.emailInstitucional ?? null,
+      telefone: perfil.telefone ?? null,
       nivelAcesso,
       role: NivelAcesso[nivelAcesso],
       tipoCredencial: perfil.tipoCredencial,
       identificador: perfil.codigoLogin,
       ativo: perfil.ativo,
       criadoEm: perfil.criadoEm,
-      aluno: perfil.curso ? { matricula: perfil.codigoLogin, curso: perfil.curso } : null,
-      servidor: perfil.departamento
-        ? { siape: perfil.codigoLogin, departamento: perfil.departamento }
-        : null,
-      coordenacoes: lotacoesAtivas,
+      aluno:
+        perfil.tipoCredencial === TipoCredencial.MATRICULA_ALUNO
+          ? { matricula: perfil.codigoLogin, curso: perfil.curso }
+          : null,
+      servidor:
+        perfil.tipoCredencial !== TipoCredencial.MATRICULA_ALUNO
+          ? { siape: perfil.codigoLogin, departamento: perfil.departamento }
+          : null,
+      coordenacoes: lotacoesAtivas.map((lotacao) => ({
+        id: lotacao.id,
+        predioId: lotacao.predioId,
+        setorId: lotacao.setorId,
+        numeroPortaria: lotacao.numeroPortaria,
+        ativo: lotacao.ativo,
+        coordenador: {
+          id: perfil.id,
+          nome: perfil.nome,
+          siape: perfil.codigoLogin,
+          email: perfil.emailInstitucional ?? null,
+        },
+        predio: lotacao.predio ?? null,
+        setor: lotacao.setor ?? null,
+      })),
     };
   }
 
@@ -168,6 +286,7 @@ export class UsuariosService {
     tipo: TipoCredencial,
     cursoId: string | undefined,
     departamentoId: string | undefined,
+    coordenacoes: Array<{ predioId: string; setorId?: string }> = [],
   ): Promise<void> {
     if (tipo === TipoCredencial.MATRICULA_ALUNO && cursoId) {
       const existe = await this.prisma.curso.findUnique({ where: { id: cursoId }, select: { id: true } });
@@ -176,6 +295,24 @@ export class UsuariosService {
     if (tipo !== TipoCredencial.MATRICULA_ALUNO && departamentoId) {
       const existe = await this.prisma.departamento.findUnique({ where: { id: departamentoId }, select: { id: true } });
       if (!existe) throw new ValidationError("O departamento informado nao existe.");
+    }
+    for (const coord of coordenacoes) {
+      const predio = await this.prisma.predio.findUnique({
+        where: { id: coord.predioId },
+        select: { id: true },
+      });
+      if (!predio) {
+        throw new ValidationError(`O predio informado para coordenacao (${coord.predioId}) nao existe.`);
+      }
+      if (coord.setorId) {
+        const setor = await this.prisma.setor.findUnique({
+          where: { id: coord.setorId },
+          select: { id: true, predioId: true },
+        });
+        if (!setor || setor.predioId !== coord.predioId) {
+          throw new ValidationError(`O setor informado (${coord.setorId}) nao existe ou nao pertence ao predio ${coord.predioId}.`);
+        }
+      }
     }
   }
 }
@@ -187,64 +324,339 @@ function chaveValida(recebida: string | undefined, esperada: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function validarCadastro(dto: CadastroUsuarioDTO) {
+interface DadosCadastroNormalizados {
+  uuid?: string;
+  nome: string;
+  email?: string;
+  telefone?: string;
+  credencial: {
+    tipoEntrada: TipoEntrada;
+    entrada: string;
+    senha: string;
+  };
+  codigoLogin: string;
+  papel: PapelCadastroUsuario;
+  tipoCredencial: TipoCredencial;
+  nivelAcesso: NivelAcesso;
+  cursoId?: string;
+  departamentoId?: string;
+  coordenacoes: Array<{
+    predioId: string;
+    setorId?: string;
+    numeroPortaria: string;
+  }>;
+}
+
+function validarCadastro(dto: CadastroUsuarioDTO, opcoes?: OpcoesCadastroUsuario): DadosCadastroNormalizados {
   if (!dto || typeof dto !== "object") throw new ValidationError("Dados de cadastro invalidos.");
   const nome = typeof dto.nome === "string" ? dto.nome.trim() : "";
-  const email = typeof dto.email === "string" ? dto.email.trim().toLowerCase() : "";
-  const telefone = typeof dto.telefone === "string" ? dto.telefone.trim() : undefined;
-  if (telefone && !/^\+?[\d\s().-]{7,20}$/.test(telefone)) {
+  if (!nome) {
+    throw new ValidationError("Nome e obrigatorio.");
+  }
+
+  const emailBruto = typeof dto.email === "string" ? dto.email.trim().toLowerCase() : "";
+  if (dto.email !== undefined && dto.email !== null && typeof dto.email !== "string") {
+    throw new ValidationError("Email invalido.");
+  }
+  if (emailBruto && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailBruto)) {
+    throw new ValidationError("Email institucional informado e invalido.");
+  }
+  const email = emailBruto || undefined;
+
+  const telefoneBruto = typeof dto.telefone === "string" ? dto.telefone.trim() : "";
+  if (dto.telefone !== undefined && dto.telefone !== null && typeof dto.telefone !== "string") {
     throw new ValidationError("Telefone invalido.");
   }
+  if (telefoneBruto && !/^\+?[\d\s().-]{7,20}$/.test(telefoneBruto)) {
+    throw new ValidationError("Telefone invalido.");
+  }
+  const telefone = telefoneBruto || undefined;
+
+  if (dto.uuid && !/^[a-f\d]{24}$/i.test(dto.uuid)) {
+    throw new ValidationError("UUID deve ser um ObjectId MongoDB valido de 24 caracteres hexadecimais.");
+  }
+
   const credencial = dto.credencial;
   if (!credencial || typeof credencial !== "object") {
     throw new ValidationError("Credencial obrigatoria com tipoEntrada, entrada e senha.");
   }
+  const credencialTipo = credencial.tipoEntrada ?? TipoEntrada.LOCAL;
+  if (!(Object.values(TipoEntrada).filter((valor) => typeof valor === "number") as number[]).includes(credencialTipo)) {
+    throw new ValidationError("Tipo de entrada de credencial invalido.");
+  }
+
   const senha = normalizarSegredo(credencial.senha);
-  const codigoLogin = normalizarIdentificador(credencial.entrada);
-  if (dto.uuid && !/^[a-f\d]{24}$/i.test(dto.uuid)) {
-    throw new ValidationError("UUID deve ser um ObjectId MongoDB valido de 24 caracteres hexadecimais.");
-  }
-  if (!nome || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new ValidationError("Nome e email valido sao obrigatorios.");
-  }
   if (!senha || Buffer.byteLength(senha, "utf8") < 8) {
     throw new ValidationError("A senha deve conter ao menos 8 bytes.");
   }
   if (Buffer.byteLength(senha, "utf8") > 72) {
     throw new ValidationError("A senha excede o limite de 72 bytes do bcrypt.");
   }
-  if (!codigoLogin) throw new ValidationError("Identificador de login obrigatorio.");
 
-  const tipoCredencial = dto.tipoCredencial;
-  const credencialTipo = credencial.tipoEntrada;
-  if (!(Object.values(TipoEntrada).filter((valor) => typeof valor === "number") as number[]).includes(credencialTipo)) {
-    throw new ValidationError("Tipo de entrada de credencial invalido.");
+  const papel = resolverPapelCadastro(dto, opcoes);
+  if ((opcoes?.permitirServidorBase || opcoes?.exigirServidor) && papel === "ALUNO") {
+    throw new ValidationError("Rota exclusiva para cadastro de servidores (PROFESSOR, TECNICO ou COORDENADOR).");
   }
 
-  if (tipoCredencial === TipoCredencial.MATRICULA_ALUNO) {
-    if (!/^\d+$/.test(codigoLogin) || !dto.cursoId) {
-      throw new ValidationError("Aluno requer matricula numerica e cursoId.");
-    }
-  } else if (tipoCredencial === TipoCredencial.SIAPE_DOCENTE || tipoCredencial === TipoCredencial.SIAPE_TECNICO) {
-    if (!/^\d+$/.test(codigoLogin) || !dto.departamentoId) {
-      throw new ValidationError("Servidor requer SIAPE numerico e departamentoId.");
-    }
-  } else {
-    throw new ValidationError("Tipo de usuario invalido.");
+  const matriculaInformada = dto.matricula !== undefined && dto.matricula !== null ? normalizarIdentificador(dto.matricula) : undefined;
+  const siapeInformado = dto.siape !== undefined && dto.siape !== null ? normalizarIdentificador(dto.siape) : undefined;
+  const entradaCredencial = credencial.entrada !== undefined && credencial.entrada !== null ? normalizarIdentificador(credencial.entrada) : "";
+
+  const coordenacoes = normalizarCoordenacoesCadastro(dto);
+  const cursoId = typeof dto.cursoId === "string" && dto.cursoId.trim() ? dto.cursoId.trim() : undefined;
+  const departamentoId = typeof dto.departamentoId === "string" && dto.departamentoId.trim() ? dto.departamentoId.trim() : undefined;
+
+  if (cursoId && !/^[a-f\d]{24}$/i.test(cursoId)) {
+    throw new ValidationError("cursoId deve ser um ObjectId MongoDB valido de 24 caracteres hexadecimais.");
+  }
+  if (departamentoId && !/^[a-f\d]{24}$/i.test(departamentoId)) {
+    throw new ValidationError("departamentoId deve ser um ObjectId MongoDB valido de 24 caracteres hexadecimais.");
   }
 
-  const entrada = normalizarIdentificador(credencial.entrada);
+  if (papel === "ALUNO") {
+    if (siapeInformado !== undefined) {
+      throw new ValidationError("Aluno deve ser cadastrado com matricula e nao pode utilizar SIAPE.");
+    }
+    if (departamentoId) {
+      throw new ValidationError("Aluno nao pode informar departamentoId de servidor.");
+    }
+    if (coordenacoes.length > 0) {
+      throw new ValidationError("Aluno nao pode receber lotacao de coordenacao.");
+    }
+    if (
+      matriculaInformada !== undefined &&
+      entradaCredencial !== "" &&
+      matriculaInformada.toUpperCase() !== entradaCredencial.toUpperCase()
+    ) {
+      throw new ValidationError("A matricula informada deve coincidir com credencial.entrada.");
+    }
+    const codigoLogin = matriculaInformada || entradaCredencial;
+    if (!codigoLogin) {
+      throw new ValidationError("Matricula do aluno e obrigatoria.");
+    }
+    if (!ehMatriculaAlunoValida(codigoLogin)) {
+      throw new ValidationError(
+        "Matricula de aluno invalida. Informe uma matricula valida (8 a 15 caracteres numericos ou alfanumericos iniciados pelo ano; SIAPE de 6 a 7 digitos nao e aceito).",
+      );
+    }
+
+    return {
+      uuid: dto.uuid,
+      nome,
+      email,
+      telefone,
+      credencial: { tipoEntrada: credencialTipo, entrada: codigoLogin, senha },
+      codigoLogin,
+      papel: "ALUNO",
+      tipoCredencial: TipoCredencial.MATRICULA_ALUNO,
+      nivelAcesso: NivelAcesso.ALUNO,
+      cursoId,
+      coordenacoes: [],
+    };
+  }
+
+  // Papeis de servidor: PROFESSOR, TECNICO ou COORDENADOR
+  if (matriculaInformada !== undefined) {
+    throw new ValidationError("Servidor (PROFESSOR, TECNICO ou COORDENADOR) deve ser cadastrado com SIAPE e nao pode utilizar matricula de aluno.");
+  }
+  if (cursoId) {
+    throw new ValidationError("Servidor nao pode informar cursoId de aluno.");
+  }
+  if (papel !== "COORDENADOR" && coordenacoes.length > 0) {
+    throw new ValidationError("Apenas usuarios com papel COORDENADOR podem receber lotacoes de coordenacao no cadastro.");
+  }
+  if (
+    siapeInformado !== undefined &&
+    entradaCredencial !== "" &&
+    siapeInformado !== entradaCredencial
+  ) {
+    throw new ValidationError("O SIAPE informado deve coincidir com credencial.entrada.");
+  }
+
+  const codigoLogin = siapeInformado || entradaCredencial;
+  if (!codigoLogin) {
+    throw new ValidationError("SIAPE e obrigatorio para cadastro de PROFESSOR, TECNICO ou COORDENADOR.");
+  }
+  if (!ehSiapeValido(codigoLogin)) {
+    throw new ValidationError(
+      "SIAPE invalido. Informe um SIAPE numerico de 6 a 7 digitos (matricula de aluno nao e aceita para servidor/coordenador).",
+    );
+  }
+
+  const tipoCredencial =
+    papel === "TECNICO" ? TipoCredencial.SIAPE_TECNICO : TipoCredencial.SIAPE_DOCENTE;
+  const nivelAcesso =
+    papel === "COORDENADOR"
+      ? NivelAcesso.COORDENADOR
+      : papel === "PROFESSOR"
+        ? NivelAcesso.PROFESSOR
+        : NivelAcesso.TECNICO;
+
   return {
     uuid: dto.uuid,
     nome,
     email,
     telefone,
-    credencial: { tipoEntrada: credencialTipo, entrada, senha },
+    credencial: { tipoEntrada: credencialTipo, entrada: codigoLogin, senha },
     codigoLogin,
+    papel,
     tipoCredencial,
-    cursoId: dto.cursoId,
-    departamentoId: dto.departamentoId,
+    nivelAcesso,
+    departamentoId,
+    coordenacoes,
   };
+}
+
+function resolverPapelCadastro(dto: CadastroUsuarioDTO, opcoes?: OpcoesCadastroUsuario): PapelCadastroUsuario {
+  const candidatos = new Set<PapelCadastroUsuario>();
+  const papelExigido = opcoes?.exigirPapel ?? opcoes?.papelRota;
+
+  for (const valorPapel of [dto.role, dto.perfil]) {
+    if (valorPapel !== undefined && valorPapel !== null) {
+      const roleNorm = String(valorPapel).trim().toUpperCase();
+      if (roleNorm === "ALUNO" || roleNorm === "PROFESSOR" || roleNorm === "TECNICO" || roleNorm === "COORDENADOR") {
+        candidatos.add(roleNorm);
+      } else {
+        throw new ValidationError("Papel (role) de usuario invalido. Valores aceitos: ALUNO, PROFESSOR, TECNICO, COORDENADOR.");
+      }
+    }
+  }
+
+  if (dto.nivelAcesso !== undefined && dto.nivelAcesso !== null) {
+    if (typeof dto.nivelAcesso === "string") {
+      const norm = dto.nivelAcesso.trim().toUpperCase();
+      if (norm === "ALUNO" || norm === "PROFESSOR" || norm === "TECNICO" || norm === "COORDENADOR") {
+        candidatos.add(norm);
+      } else {
+        throw new ValidationError("nivelAcesso invalido.");
+      }
+    } else {
+      switch (Number(dto.nivelAcesso)) {
+        case NivelAcesso.ALUNO:
+          candidatos.add("ALUNO");
+          break;
+        case NivelAcesso.TECNICO:
+          candidatos.add("TECNICO");
+          break;
+        case NivelAcesso.PROFESSOR:
+          candidatos.add("PROFESSOR");
+          break;
+        case NivelAcesso.COORDENADOR:
+          candidatos.add("COORDENADOR");
+          break;
+        default:
+          throw new ValidationError("nivelAcesso invalido. Valores aceitos: 1 (ALUNO), 2 (TECNICO), 3 (PROFESSOR), 4 (COORDENADOR).");
+      }
+    }
+  }
+
+  const possuiDadosCoordenacao =
+    Boolean(dto.predioId) ||
+    (Array.isArray(dto.predioIds) && dto.predioIds.length > 0) ||
+    (Array.isArray(dto.coordenacoes) && dto.coordenacoes.length > 0);
+
+  if (dto.tipoCredencial !== undefined && dto.tipoCredencial !== null) {
+    const tipoNorm = String(dto.tipoCredencial).trim().toUpperCase();
+    if (tipoNorm === TipoCredencial.MATRICULA_ALUNO) {
+      candidatos.add("ALUNO");
+    } else if (tipoNorm === TipoCredencial.SIAPE_TECNICO) {
+      candidatos.add("TECNICO");
+    } else if (tipoNorm === "COORDENADOR") {
+      candidatos.add("COORDENADOR");
+    } else if (tipoNorm === TipoCredencial.SIAPE_DOCENTE) {
+      if (!candidatos.has("COORDENADOR")) {
+        candidatos.add(
+          papelExigido === "COORDENADOR" || possuiDadosCoordenacao
+            ? "COORDENADOR"
+            : "PROFESSOR",
+        );
+      }
+    } else {
+      throw new ValidationError("Tipo de credencial invalido.");
+    }
+  }
+
+  if (papelExigido) {
+    if (candidatos.size > 0 && (candidatos.size > 1 || !candidatos.has(papelExigido))) {
+      throw new ValidationError(`Os dados informados conflitam com o cadastro de ${papelExigido}.`);
+    }
+    return papelExigido;
+  }
+
+  if (candidatos.size === 0) {
+    throw new ValidationError("Informe role (ALUNO, PROFESSOR, TECNICO, COORDENADOR) ou tipoCredencial.");
+  }
+  if (candidatos.size > 1) {
+    throw new ValidationError("Conflito entre role, nivelAcesso e tipoCredencial informados no cadastro.");
+  }
+
+  return [...candidatos][0];
+}
+
+function normalizarCoordenacoesCadastro(dto: CadastroUsuarioDTO): Array<{
+  predioId: string;
+  setorId?: string;
+  numeroPortaria: string;
+}> {
+  const itensBrutos: LotacaoCoordenacaoCadastroInput[] = [];
+  if (Array.isArray(dto.coordenacoes)) {
+    itensBrutos.push(...dto.coordenacoes);
+  }
+  if (typeof dto.predioId === "string" && dto.predioId.trim()) {
+    itensBrutos.push({
+      predioId: dto.predioId.trim(),
+      setorId: dto.setorId ?? null,
+      numeroPortaria: dto.numeroPortaria,
+    });
+  }
+  if (Array.isArray(dto.predioIds)) {
+    for (const id of dto.predioIds) {
+      if (typeof id === "string" && id.trim()) {
+        itensBrutos.push({
+          predioId: id.trim(),
+          setorId: dto.setorId ?? null,
+          numeroPortaria: dto.numeroPortaria,
+        });
+      }
+    }
+  }
+
+  const vistos = new Set<string>();
+  const resultado: Array<{
+    predioId: string;
+    setorId?: string;
+    numeroPortaria: string;
+  }> = [];
+
+  for (const item of itensBrutos) {
+    if (!item || typeof item !== "object") {
+      throw new ValidationError("Item de coordenacao invalido.");
+    }
+    const predioId = typeof item.predioId === "string" ? item.predioId.trim() : "";
+    if (!/^[a-f\d]{24}$/i.test(predioId)) {
+      throw new ValidationError("predioId da coordenacao deve ser um ObjectId MongoDB valido de 24 caracteres hexadecimais.");
+    }
+    if (vistos.has(predioId)) continue;
+    vistos.add(predioId);
+
+    const setorId = typeof item.setorId === "string" && item.setorId.trim() ? item.setorId.trim() : undefined;
+    if (setorId && !/^[a-f\d]{24}$/i.test(setorId)) {
+      throw new ValidationError("setorId da coordenacao deve ser um ObjectId MongoDB valido de 24 caracteres hexadecimais.");
+    }
+
+    const numeroPortaria =
+      (typeof item.numeroPortaria === "string" && item.numeroPortaria.trim()) ||
+      (typeof dto.numeroPortaria === "string" && dto.numeroPortaria.trim()) ||
+      "PORTARIA-CADASTRO";
+
+    resultado.push({
+      predioId,
+      ...(setorId ? { setorId } : {}),
+      numeroPortaria,
+    });
+  }
+
+  return resultado;
 }
 
 function nivelParaTipo(tipo: TipoCredencial): NivelAcesso {
