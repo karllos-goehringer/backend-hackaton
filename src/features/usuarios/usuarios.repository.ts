@@ -1,4 +1,4 @@
-import type { Prisma, TipoCredencial, TipoEntradaCredencial } from "@prisma/client";
+import { TipoCredencial, type Prisma, type TipoEntradaCredencial } from "@prisma/client";
 import type { DbClient } from "../../shared/database/transacao.js";
 
 export interface UsuarioResumo {
@@ -186,6 +186,49 @@ export class UsuariosRepository {
       where: { id },
       data: { versaoSolicitacoes: { increment: 1 } },
       select: { id: true },
+    });
+  }
+
+  listarServidores(filtro?: {
+    apenasAtivos?: boolean;
+    departamentoId?: string;
+  }): Promise<PerfilUsuario[]> {
+    return this.db.usuario.findMany({
+      where: {
+        tipoCredencial: {
+          in: [TipoCredencial.SIAPE_DOCENTE, TipoCredencial.SIAPE_TECNICO],
+        },
+        ...(filtro?.apenasAtivos !== false ? { ativo: true } : {}),
+        ...(filtro?.departamentoId ? { departamentoId: filtro.departamentoId } : {}),
+      },
+      select: {
+        id: true,
+        nome: true,
+        emailInstitucional: true,
+        telefone: true,
+        codigoLogin: true,
+        tipoCredencial: true,
+        nivelAcesso: true,
+        ativo: true,
+        criadoEm: true,
+        departamento: { select: { id: true, nome: true } },
+        lotacoesCoordenacao: {
+          select: {
+            id: true,
+            predioId: true,
+            numeroPortaria: true,
+            ativo: true,
+            predio: {
+              select: {
+                id: true,
+                nome: true,
+                campusId: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { nome: "asc" },
     });
   }
 }

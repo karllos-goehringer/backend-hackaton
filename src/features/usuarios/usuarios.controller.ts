@@ -61,4 +61,31 @@ export class UsuariosController {
   listarDepartamentosElegiveis = async (_request: Request, response: Response): Promise<void> => {
     response.json(await this.service.listarDepartamentosElegiveis());
   };
+
+  listarServidores = async (request: Request, response: Response): Promise<void> => {
+    const role = typeof request.query.role === "string" ? request.query.role : typeof request.query.papel === "string" ? request.query.papel : undefined;
+    const departamentoId = typeof request.query.departamentoId === "string" ? request.query.departamentoId : undefined;
+    const predioId = typeof request.query.predioId === "string" ? request.query.predioId : undefined;
+    const servidores = await this.service.listarServidores({ role, departamentoId, predioId });
+    response.status(200).json(servidores);
+  };
+
+  listarProfessores = async (request: Request, response: Response): Promise<void> => {
+    const departamentoId = typeof request.query.departamentoId === "string" ? request.query.departamentoId : undefined;
+    const servidores = await this.service.listarServidores({ role: "PROFESSOR", departamentoId });
+    response.status(200).json(servidores);
+  };
+
+  listarTecnicos = async (request: Request, response: Response): Promise<void> => {
+    const departamentoId = typeof request.query.departamentoId === "string" ? request.query.departamentoId : undefined;
+    const servidores = await this.service.listarServidores({ role: "TECNICO", departamentoId });
+    response.status(200).json(servidores);
+  };
+
+  listarCoordenadores = async (request: Request, response: Response): Promise<void> => {
+    const predioId = typeof request.query.predioId === "string" ? request.query.predioId : undefined;
+    const departamentoId = typeof request.query.departamentoId === "string" ? request.query.departamentoId : undefined;
+    const servidores = await this.service.listarServidores({ role: "COORDENADOR", predioId, departamentoId });
+    response.status(200).json(servidores);
+  };
 }

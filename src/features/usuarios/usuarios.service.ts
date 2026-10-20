@@ -40,8 +40,13 @@ export class UsuariosService {
 
   async cadastrar(
     dto: CadastroUsuarioDTO,
-    opcoes?: OpcoesCadastroUsuario,
+    opcoesOuChave?: OpcoesCadastroUsuario | string,
+    opcoesLegado?: OpcoesCadastroUsuario,
   ) {
+    const opcoes =
+      typeof opcoesOuChave === "object" && opcoesOuChave !== null
+        ? opcoesOuChave
+        : opcoesLegado;
     const dados = validarCadastro(dto, opcoes);
     await this.validarReferencia(
       dados.tipoCredencial,
@@ -158,6 +163,64 @@ export class UsuariosService {
       ...departamento,
       ...(sigla ? { sigla } : {}),
     }));
+  }
+
+  async listarServidores(opcoes?: {
+    role?: string;
+    departamentoId?: string;
+    predioId?: string;
+    apenasAtivos?: boolean;
+  }) {
+    const usuarios = new UsuariosRepository(this.prisma);
+    const servidores = await usuarios.listarServidores({
+      apenasAtivos: opcoes?.apenasAtivos,
+      departamentoId: opcoes?.departamentoId,
+    });
+
+    const mapeados = servidores.map((servidor) => {
+      const lotacoesAtivas = (servidor.lotacoesCoordenacao ?? []).filter((lotacao) => lotacao.ativo);
+      const nivelAcesso =
+        servidor.nivelAcesso === NivelAcesso.COORDENADOR ||
+        (servidor.tipoCredencial === TipoCredencial.SIAPE_DOCENTE && lotacoesAtivas.length > 0)
+          ? NivelAcesso.COORDENADOR
+          : nivelParaTipo(servidor.tipoCredencial);
+
+      const role = NivelAcesso[nivelAcesso] as "PROFESSOR" | "TECNICO" | "COORDENADOR";
+
+      return {
+        id: servidor.id,
+        uuid: servidor.id,
+        nome: servidor.nome,
+        email: servidor.emailInstitucional ?? null,
+        telefone: servidor.telefone ?? null,
+        siape: servidor.codigoLogin,
+        identificador: servidor.codigoLogin,
+        role,
+        nivelAcesso,
+        tipoCredencial: servidor.tipoCredencial,
+        ativo: servidor.ativo,
+        departamento: servidor.departamento ?? null,
+        coordenacoes: lotacoesAtivas.map((lotacao) => ({
+          id: lotacao.id,
+          predioId: lotacao.predioId,
+          numeroPortaria: lotacao.numeroPortaria,
+          ativo: lotacao.ativo,
+          predio: lotacao.predio ?? null,
+        })),
+        criadoEm: servidor.criadoEm,
+      };
+    });
+
+    return mapeados.filter((s) => {
+      if (opcoes?.role && s.role.toUpperCase() !== opcoes.role.toUpperCase()) {
+        return false;
+      }
+      if (opcoes?.predioId) {
+        const coordenaPredio = s.coordenacoes.some((c) => c.predioId === opcoes.predioId);
+        if (!coordenaPredio) return false;
+      }
+      return true;
+    });
   }
 
   async autenticar(dto: AutenticarCredencialDTO): Promise<CredencialAutenticadaDTO> {

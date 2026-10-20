@@ -10,6 +10,10 @@ export function criarUsuariosRouter(controller: UsuariosController, autenticar: 
   router.post("/professores", controller.cadastrarProfessor);
   router.post("/tecnicos", controller.cadastrarTecnico);
   router.post("/coordenadores", controller.cadastrarCoordenador);
+  router.get("/servidores", controller.listarServidores);
+  router.get("/professores", controller.listarProfessores);
+  router.get("/tecnicos", controller.listarTecnicos);
+  router.get("/coordenadores", controller.listarCoordenadores);
   router.get("/departamentos-elegiveis", controller.listarDepartamentosElegiveis);
   router.get("/me", autenticar, controller.meuPerfil);
   return router;
