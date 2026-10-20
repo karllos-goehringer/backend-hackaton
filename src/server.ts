@@ -6,10 +6,13 @@ import { NotificacoesWebSocket } from "./features/notificacoes/notificacoes.webs
 import { UsuariosRepository } from "./features/usuarios/usuarios.repository.js";
 import { sincronizarCatalogoDepartamentos } from "./features/usuarios/departamentos-elegiveis.repository.js";
 import { connectToMongoDB, disconnectFromMongoDB, prisma } from "./shared/config/database.js";
+import { validarConfiguracaoJwt } from "./shared/config/jwt.config.js";
+import { swaggerEstaHabilitado } from "./shared/docs/swagger.routes.js";
 
 const port = Number(process.env.PORT) || 3333;
 
 async function startServer(): Promise<void> {
+  const configJwt = validarConfiguracaoJwt();
   await connectToMongoDB();
   await sincronizarCatalogoDepartamentos(prisma);
 
@@ -22,7 +25,11 @@ async function startServer(): Promise<void> {
   server.listen(port, () => {
     console.log(`Servidor Express rodando em http://localhost:${port}`);
     console.log(`WebSocket de notificacoes em ws://localhost:${port}/notificacoes/ws`);
-    console.log(`Ambiente: ${process.env.NODE_ENV || "development"}`);
+    if (swaggerEstaHabilitado()) {
+      console.log(`Swagger UI disponivel em http://localhost:${port}/api-docs`);
+      console.log(`OpenAPI JSON disponivel em http://localhost:${port}/api-docs.json`);
+    }
+    console.log(`Ambiente: ${configJwt.ambiente}`);
   });
 
   let encerrando = false;
